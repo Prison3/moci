@@ -19,6 +19,10 @@
       <textarea name="meaning" required maxlength="400" rows="3" placeholder="苹果；公司名">{{ word.meaning if word else '' }}</textarea>
     </label>
     <label>
+      <span>短语（可选）</span>
+      <input type="text" name="phrase" maxlength="200" value="{{ word.phrase if word else '' }}" placeholder="eat an apple">
+    </label>
+    <label>
       <span>例句（可选）</span>
       <textarea name="example" maxlength="400" rows="3" placeholder="She ate an apple.">{{ word.example if word else '' }}</textarea>
     </label>

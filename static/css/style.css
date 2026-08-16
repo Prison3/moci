@@ -536,7 +536,109 @@ textarea:focus {
   background: var(--pine);
 }
 
+.term-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.term-row .page-title {
+  margin: 6px 0;
+}
+
+.speak-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pine);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.speak-btn svg {
+  width: 18px;
+  height: 18px;
+  overflow: visible;
+}
+
+.speak-btn .speak-body {
+  fill: currentColor;
+}
+
+.speak-btn .speak-wave {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  opacity: 0.28;
+  transform-origin: 11px 12px;
+}
+
+.speak-btn.is-speaking .speak-wave-1 {
+  animation: speak-wave 0.85s ease-in-out infinite;
+}
+
+.speak-btn.is-speaking .speak-wave-2 {
+  animation: speak-wave 0.85s ease-in-out infinite 0.22s;
+}
+
+@keyframes speak-wave {
+  0%, 100% {
+    opacity: 0.12;
+    transform: scale(0.88);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+.speak-inline {
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  margin-left: 4px;
+}
+
+.speak-inline svg {
+  width: 15px;
+  height: 15px;
+}
+
+.card-term-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 8px;
+}
+
+.card-speak {
+  margin: 0;
+}
+
+.extra {
+  margin: 10px 0 0;
+  line-height: 1.5;
+}
+
+.extra-label {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-right: 6px;
+}
+
 .flashcard {
+  position: relative;
   padding: 22px 18px;
   min-height: 280px;
   display: none;
@@ -546,16 +648,11 @@ textarea:focus {
 
 .card-face {
   width: 100%;
-  background: none;
-  border: 0;
   color: inherit;
   text-align: left;
-  padding: 0;
-  cursor: pointer;
 }
 
-.card-kicker,
-.hint {
+.card-kicker {
   color: var(--ink-soft);
   font-size: 13px;
 }
@@ -564,21 +661,20 @@ textarea:focus {
   display: block;
   font-family: var(--serif);
   font-size: clamp(2rem, 8vw, 2.6rem);
-  margin: 18px 0 8px;
+  margin: 0;
 }
 
 .card-back {
-  display: none;
+  display: block;
   margin-top: 16px;
   padding-top: 16px;
   border-top: 1px dashed var(--line);
 }
 
-.flashcard.is-open .card-back { display: block; }
-.flashcard.is-open .hint { display: none; }
-
 .flashcard.is-spelling .card-term,
-.flashcard.is-spelling .phonetic {
+.flashcard.is-spelling .phonetic,
+.flashcard.is-spelling .card-speak,
+.flashcard.is-spelling .speak-btn {
   visibility: hidden;
 }
 

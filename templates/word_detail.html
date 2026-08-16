@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import speak_btn %}
 {% block title %}{{ word.term }} · 墨词{% endblock %}
 {% block subtitle %}词条{% endblock %}
 {% block content %}
@@ -8,10 +9,22 @@
       {% if word.status == 'new' %}新词{% elif word.status == 'learning' %}了解{% elif word.status == 'mastered' %}掌握{% endif %}
     </p>
   {% endif %}
-  <h1 class="page-title term">{{ word.term }}</h1>
+  <div class="term-row">
+    <h1 class="page-title term">{{ word.term }}</h1>
+    {{ speak_btn(word.term, '朗读单词') }}
+  </div>
   {% if word.phonetic %}<p class="phonetic">{{ word.phonetic }}</p>{% endif %}
   <p class="meaning">{{ word.meaning }}</p>
-  {% if word.example %}<p class="example">{{ word.example }}</p>{% endif %}
+  {% if word.phrase %}
+    <p class="extra"><span class="extra-label">短语</span> {{ word.phrase }}
+      {{ speak_btn(word.phrase, '朗读短语', 'speak-inline') }}
+    </p>
+  {% endif %}
+  {% if word.example %}
+    <p class="example extra"><span class="extra-label">例句</span> {{ word.example }}
+      {{ speak_btn(word.example, '朗读例句', 'speak-inline') }}
+    </p>
+  {% endif %}
   {% if word.notes %}<p class="notes">{{ word.notes }}</p>{% endif %}
 
   <div class="hero-actions detail-actions">

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import speak_btn %}
 {% block title %}学习 · 墨词{% endblock %}
 {% block subtitle %}点学会后需默写拼写{% endblock %}
 {% block content %}
@@ -12,22 +13,33 @@
         <article class="flashcard {% if loop.first %}is-current{% else %}is-queued{% endif %}"
                  data-id="{{ w.id }}"
                  data-index="{{ loop.index0 }}">
-          <button type="button" class="card-face" aria-label="翻转卡片">
+          <div class="card-face">
             <span class="card-kicker">{% if w.kind == 'review' %}了解{% else %}新词{% endif %}</span>
-            <strong class="card-term">{{ w.term }}</strong>
+            <div class="card-term-row">
+              <strong class="card-term">{{ w.term }}</strong>
+              {{ speak_btn(w.term, '朗读单词', 'card-speak') }}
+            </div>
             {% if w.phonetic %}<span class="phonetic">{{ w.phonetic }}</span>{% endif %}
-            <span class="hint">点按查看释义</span>
-          </button>
+          </div>
           <div class="card-back">
             <p class="meaning">{{ w.meaning }}</p>
-            {% if w.example %}<p class="example">{{ w.example }}</p>{% endif %}
+            {% if w.phrase %}
+              <p class="extra"><span class="extra-label">短语</span> {{ w.phrase }}
+                {{ speak_btn(w.phrase, '朗读短语', 'speak-inline') }}
+              </p>
+            {% endif %}
+            {% if w.example %}
+              <p class="example extra"><span class="extra-label">例句</span> {{ w.example }}
+                {{ speak_btn(w.example, '朗读例句', 'speak-inline') }}
+              </p>
+            {% endif %}
             {% if w.notes %}<p class="notes">{{ w.notes }}</p>{% endif %}
           </div>
         </article>
       {% endfor %}
     </div>
 
-    <div class="rate-bar" id="rate-bar" hidden>
+    <div class="rate-bar" id="rate-bar">
       <button type="button" class="rate rate-again" data-rating="again">不认识</button>
       <button type="button" class="rate rate-easy" data-rating="easy">学会</button>
     </div>

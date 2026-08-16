@@ -8,6 +8,61 @@
     }, 3200);
   });
 
+  function pickEnglishVoice() {
+    if (!window.speechSynthesis) return null;
+    const voices = speechSynthesis.getVoices();
+    return (
+      voices.find((v) => /^en-US/i.test(v.lang)) ||
+      voices.find((v) => /^en/i.test(v.lang)) ||
+      null
+    );
+  }
+
+  let speakToken = 0;
+
+  function clearSpeaking() {
+    document.querySelectorAll(".speak-btn.is-speaking").forEach((el) => {
+      el.classList.remove("is-speaking");
+    });
+  }
+
+  function speakEnglish(text, btn) {
+    const value = (text || "").trim();
+    if (!value || !window.speechSynthesis) return;
+    speechSynthesis.cancel();
+    clearSpeaking();
+    const token = ++speakToken;
+    const utter = new SpeechSynthesisUtterance(value);
+    utter.lang = "en-US";
+    utter.rate = 0.9;
+    const voice = pickEnglishVoice();
+    if (voice) utter.voice = voice;
+    if (btn) {
+      btn.classList.add("is-speaking");
+      const stop = () => {
+        if (token === speakToken) btn.classList.remove("is-speaking");
+      };
+      utter.addEventListener("end", stop);
+      utter.addEventListener("error", stop);
+    }
+    speechSynthesis.speak(utter);
+  }
+
+  if (window.speechSynthesis) {
+    speechSynthesis.getVoices();
+    speechSynthesis.addEventListener("voiceschanged", () => {
+      pickEnglishVoice();
+    });
+  }
+
+  document.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-speak]");
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    speakEnglish(btn.getAttribute("data-speak") || "", btn);
+  });
+
   const wrap = document.querySelector(".review-wrap");
   if (!wrap) return;
 
@@ -54,7 +109,7 @@
   }
 
   function show(i) {
-    cards.forEach((c) => c.classList.remove("is-current", "is-open", "is-spelling"));
+    cards.forEach((c) => c.classList.remove("is-current", "is-spelling"));
     hideSpell();
     if (!cards[i]) {
       if (deck) deck.hidden = true;
@@ -66,7 +121,7 @@
       return;
     }
     cards[i].classList.add("is-current");
-    if (rateBar) rateBar.hidden = true;
+    if (rateBar) rateBar.hidden = false;
   }
 
   function updateProgress() {
@@ -99,17 +154,6 @@
     show(index);
     return "ok";
   }
-
-  cards.forEach((card) => {
-    const face = card.querySelector(".card-face");
-    if (!face) return;
-    face.addEventListener("click", () => {
-      if (!card.classList.contains("is-current")) return;
-      if (card.classList.contains("is-spelling")) return;
-      card.classList.add("is-open");
-      if (rateBar) rateBar.hidden = false;
-    });
-  });
 
   if (rateBar) {
     rateBar.addEventListener("click", async (event) => {
@@ -159,7 +203,7 @@
     spellCancel.addEventListener("click", () => {
       hideSpell();
       const card = current();
-      if (card && card.classList.contains("is-open") && rateBar) {
+      if (card && rateBar) {
         rateBar.hidden = false;
       }
     });
