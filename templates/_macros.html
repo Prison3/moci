@@ -1,3 +1,51 @@
+{% macro status_badge(status) -%}
+  <span class="badge badge-{{ status }}">
+    {% if status == 'learning' %}现为复习{% elif status == 'mastered' %}现为掌握{% else %}现为新词{% endif %}
+  </span>
+{%- endmacro %}
+
+{% macro day_word_list(words, empty='这一天还没有学习记录。') -%}
+  {% if words %}
+    <ul class="word-list cal-logs">
+      {% for row in words %}
+        <li class="log-row cal-word">
+          <div class="cal-word-head">
+            <div>
+              <strong class="term">{{ row.term }}</strong>
+              {{ speak_btn(row.term, '朗读单词', 'speak-inline') }}
+              {% if row.username %}
+                <p class="muted">{{ row.username }}</p>
+              {% endif %}
+              <p>{{ row.meaning }}</p>
+            </div>
+            <div class="log-tags">
+              <span class="badge {% if row.kind == 'review' %}badge-learning{% else %}badge-new{% endif %}">
+                {% if row.kind == 'review' %}复习{% else %}学新词{% endif %}
+              </span>
+              <span class="badge {% if row.rating == 'easy' %}badge-mastered{% else %}badge-new{% endif %}">
+                {% if row.rating == 'easy' %}学会{% else %}不认识{% endif %}
+              </span>
+              {{ status_badge(row.status) }}
+            </div>
+          </div>
+          {% if row.phrase %}
+            <p class="extra"><span class="extra-label">短语</span> {{ row.phrase }}
+              {{ speak_btn(row.phrase, '朗读短语', 'speak-inline') }}
+            </p>
+          {% endif %}
+          {% if row.example %}
+            <p class="example extra"><span class="extra-label">例句</span> {{ row.example }}
+              {{ speak_btn(row.example, '朗读例句', 'speak-inline') }}
+            </p>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted cal-empty">{{ empty }}</p>
+  {% endif %}
+{%- endmacro %}
+
 {% macro speak_btn(text, label, extra_class='') -%}
 <button type="button" class="speak-btn {{ extra_class }}" data-speak="{{ text }}" aria-label="{{ label }}">
   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">

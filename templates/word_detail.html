@@ -6,7 +6,7 @@
 <section class="panel">
   {% if not is_admin %}
     <p class="eyebrow">
-      {% if word.status == 'new' %}新词{% elif word.status == 'learning' %}了解{% elif word.status == 'mastered' %}掌握{% endif %}
+      {% if word.status == 'new' %}新词{% elif word.status == 'learning' %}复习{% elif word.status == 'mastered' %}掌握{% endif %}
     </p>
   {% endif %}
   <div class="term-row">

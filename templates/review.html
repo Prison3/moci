@@ -14,7 +14,7 @@
                  data-id="{{ w.id }}"
                  data-index="{{ loop.index0 }}">
           <div class="card-face">
-            <span class="card-kicker">{% if w.kind == 'review' %}了解{% else %}新词{% endif %}</span>
+            <span class="card-kicker">{% if w.kind == 'review' %}复习{% else %}新词{% endif %}</span>
             <div class="card-term-row">
               <strong class="card-term">{{ w.term }}</strong>
               {{ speak_btn(w.term, '朗读单词', 'card-speak') }}
@@ -61,7 +61,7 @@
         <a class="btn btn-primary" href="{{ url_for('home') }}">回到首页</a>
       {% elif task and task.remaining == 0 %}
         <h1>今日任务已完成</h1>
-        <p>今天新词 {{ task.new.quota }} 个、了解复习 {{ task.review.quota }} 个都已完成，明天再来。</p>
+        <p>今天新词 {{ task.new.quota }} 个、复习 {{ task.review.quota }} 个都已完成，明天再来。</p>
         <a class="btn btn-primary" href="{{ url_for('home') }}">回到首页</a>
       {% else %}
         <h1>今天没有待学习单词</h1>

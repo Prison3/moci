@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block title %}学习任务 · 墨词{% endblock %}
-{% block subtitle %}设置每日新词与了解复习{% endblock %}
+{% block subtitle %}设置每日新词与复习{% endblock %}
 {% block content %}
 <section class="panel">
   <h1 class="page-title">学习任务</h1>
-  <p class="muted">分别设定每天要学的新词数量，以及要复习的了解单词数量。范围 0–50。</p>
+  <p class="muted">分别设定每天要学的新词数量，以及要复习的单词数量。范围 0–50。</p>
 </section>
 
 {% if children %}
@@ -21,10 +21,10 @@
           <input type="number" name="daily_words_{{ item.user.id }}" value="{{ item.task.new.quota }}" min="0" max="50" required inputmode="numeric">
         </label>
         <label>
-          <span>每日复习了解词（0–50）</span>
+          <span>每日复习（0–50）</span>
           <input type="number" name="daily_review_{{ item.user.id }}" value="{{ item.task.review.quota }}" min="0" max="50" required inputmode="numeric">
         </label>
-        <p class="muted">今日新词 {{ item.task.new.done }} / {{ item.task.new.quota }} · 了解 {{ item.task.review.done }} / {{ item.task.review.quota }}</p>
+        <p class="muted">今日新词 {{ item.task.new.done }} / {{ item.task.new.quota }} · 复习 {{ item.task.review.done }} / {{ item.task.review.quota }}</p>
       </section>
     {% endfor %}
     <button class="btn btn-primary btn-block" type="submit">保存设置</button>

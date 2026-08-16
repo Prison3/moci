@@ -16,7 +16,7 @@
 {% if is_learner and stats %}
 <section class="stats-grid stats-3">
   <article class="stat"><strong>{{ stats.total }}</strong><span>单词</span></article>
-  <article class="stat"><strong>{{ stats.learning }}</strong><span>了解</span></article>
+  <article class="stat"><strong>{{ stats.learning }}</strong><span>复习</span></article>
   <article class="stat"><strong>{{ stats.mastered }}</strong><span>掌握</span></article>
 </section>
 {% endif %}
@@ -34,7 +34,7 @@
     {% if children %}
       <p class="muted">孩子：{% for kid in children %}{{ kid.username }}{% if not loop.last %}、{% endif %}{% endfor %}</p>
     {% endif %}
-    <a class="btn btn-primary btn-block" href="{{ url_for('parent_learning') }}">查看学情</a>
+    <a class="btn btn-primary btn-block" href="{{ url_for('home') }}">查看学情</a>
     <a class="btn btn-ghost btn-block" href="{{ url_for('parent_tasks') }}">学习任务</a>
   {% else %}
     <h2>关于角色</h2>

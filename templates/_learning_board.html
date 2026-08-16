@@ -1,0 +1,105 @@
+{% from "_macros.html" import day_word_list %}
+{% set uid = detail_user.id if detail_user else none %}
+{% macro day_url(date) -%}
+  {{ board_href(learning_endpoint, date, uid, selected_kind) }}
+{%- endmacro %}
+<section class="panel month-cal" aria-label="学情日历">
+  <div class="cal-nav">
+    <a class="cal-nav-btn" href="{{ day_url(calendar.prev_date) }}">上月</a>
+    <h1 class="page-title cal-title">{{ calendar.title }}</h1>
+    {% if calendar.next_date %}
+      <a class="cal-nav-btn" href="{{ day_url(calendar.next_date) }}">下月</a>
+    {% else %}
+      <span class="cal-nav-btn is-disabled">下月</span>
+    {% endif %}
+  </div>
+  <p class="muted cal-sub">有记录 {{ calendar.studied_days }} 天 · 点日期查看当天</p>
+  <div class="cal-weekdays" aria-hidden="true">
+    <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+  </div>
+  <div class="cal-grid">
+    {% for cell in calendar.cells %}
+      {% if cell.blank %}
+        <span class="cal-cell is-blank"></span>
+      {% else %}
+        {% if cell.future %}
+        <span class="cal-cell is-future" aria-disabled="true"
+              aria-label="{{ calendar.month }}月{{ cell.day }}日，未到">
+          <span class="cal-num">{{ cell.day }}</span>
+        </span>
+        {% else %}
+        <a class="cal-cell{% if cell.today %} is-today{% endif %}{% if cell.selected %} is-selected{% endif %}{% if cell.complete %} is-done{% elif cell.studied %} is-studied{% endif %}"
+           href="{{ day_url(cell.date) }}"
+           aria-current="{{ 'date' if cell.selected else 'false' }}"
+           aria-label="{{ calendar.month }}月{{ cell.day }}日，新词{{ cell.new_n }}，复习{{ cell.review_n }}">
+          {% if cell.new_n %}<span class="cal-mark cal-new">{{ cell.new_n }}{% if calendar.new_quota is not none %}/{{ calendar.new_quota }}{% endif %}</span>{% endif %}
+          {% if cell.studied or cell.complete %}
+            <span class="cal-mark cal-review{% if not cell.review_n %} is-zero{% endif %}">{{ cell.review_n }}{% if calendar.review_quota is not none %}/{{ calendar.review_quota }}{% endif %}</span>
+          {% endif %}
+          <span class="cal-dot {% if cell.studied or cell.complete %}is-ok{% else %}is-miss{% endif %}" aria-hidden="true"></span>
+          <span class="cal-num">{{ cell.day }}</span>
+        </a>
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+  </div>
+  <p class="cal-detail">
+    {% if calendar.selected_cell %}
+      {{ calendar.month }}月{{ calendar.selected_cell.day }}日：新词 {{ calendar.selected_cell.new_n }} · 复习 {{ calendar.selected_cell.review_n }}{% if calendar.selected_cell.learners and not is_parent %} · {{ calendar.selected_cell.learners }} 人{% endif %}
+    {% endif %}
+  </p>
+  <p class="cal-legend muted">左上新词 · 左下复习 · 绿点已打卡 · 红点未打卡</p>
+</section>
+
+<section class="stats-grid{% if is_parent %} stats-2{% endif %}" aria-label="当日汇总">
+  {% if not is_parent %}
+  <article class="stat"><strong>{{ summary.learners or 0 }}</strong><span>学习人数</span></article>
+  {% endif %}
+  {% if is_parent %}
+  <a class="stat{% if selected_kind == 'new' %} is-selected{% endif %}"
+     href="{{ board_href(learning_endpoint, day, uid, 'new') }}"
+     aria-pressed="{{ 'true' if selected_kind == 'new' else 'false' }}">
+    <strong>{{ summary.new_n or 0 }}</strong><span>新词学习</span>
+  </a>
+  <a class="stat{% if selected_kind == 'review' %} is-selected{% endif %}"
+     href="{{ board_href(learning_endpoint, day, uid, 'review') }}"
+     aria-pressed="{{ 'true' if selected_kind == 'review' else 'false' }}">
+    <strong>{{ summary.review_n or 0 }}</strong><span>复习</span>
+  </a>
+  {% else %}
+  <article class="stat"><strong>{{ summary.new_n or 0 }}</strong><span>新词学习</span></article>
+  <article class="stat"><strong>{{ summary.review_n or 0 }}</strong><span>复习</span></article>
+  <article class="stat"><strong>{{ summary.reviews or 0 }}</strong><span>学习次数</span></article>
+  {% endif %}
+</section>
+
+{% if is_parent and (detail_user or selected_kind) %}
+  <section class="panel">
+    <div class="panel-head">
+      <h2>{% if detail_user %}{{ detail_user.username }} · {% endif %}{% if kind_label %}{{ kind_label }} · {% endif %}{{ day }}</h2>
+    </div>
+    {{ day_word_list(logs, empty_text) }}
+  </section>
+{% elif by_user %}
+  <section class="panel">
+    <h2>{{ day }} 有学习记录的用户</h2>
+    <ul class="user-list">
+      {% for u in by_user %}
+        <li class="user-row">
+          <div>
+            <strong>{{ u.username }}</strong>
+            <p class="muted">新词 {{ u.new_n or 0 }} · 复习 {{ u.review_n or 0 }} · 最近 {{ u.last_at }}</p>
+            <p class="muted">学会 {{ u.easy_n }} · 不认识 {{ u.again_n }}</p>
+          </div>
+          {% if not is_parent %}
+            <a class="btn btn-ghost btn-compact" href="{{ url_for(learning_endpoint, date=day, user_id=u.id) }}">明细</a>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+{% else %}
+  <div class="empty">
+    <p>{{ empty_text }}</p>
+  </div>
+{% endif %}

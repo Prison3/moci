@@ -1,32 +1,34 @@
 {% extends "base.html" %}
-{% block title %}孩子学习 · 墨词{% endblock %}
+{% block title %}孩子学情 · 墨词{% endblock %}
 {% block subtitle %}查看孩子的学习情况{% endblock %}
 {% block content %}
-<section class="hero">
-  <p class="eyebrow">{{ current_user.username }} · 家长</p>
-  <h1>孩子 <em>{{ children|length }}</em> 人</h1>
-  <div class="hero-actions">
-    <a class="btn btn-primary" href="{{ url_for('parent_learning') }}">按日期查看</a>
-    <a class="btn btn-ghost" href="{{ url_for('parent_tasks') }}">学习任务</a>
-  </div>
-</section>
-
 {% if children %}
-  <ul class="user-list">
-    {% for item in children %}
-      <li class="user-row">
-        <div>
-          <strong>{{ item.user.username }}</strong>
-          <p class="muted">新词 {{ item.task.new.done }} / {{ item.task.new.quota }} · 了解 {{ item.task.review.done }} / {{ item.task.review.quota }}</p>
-          <p class="muted">了解 {{ item.stats.learning }} · 掌握 {{ item.stats.mastered }}</p>
-        </div>
-        <a class="btn btn-ghost btn-compact" href="{{ url_for('parent_learning', date=day, user_id=item.user.id) }}">今日明细</a>
-      </li>
-    {% endfor %}
-  </ul>
+  <section class="panel" aria-label="孩子信息">
+    <div class="panel-head">
+      <h2>孩子 {{ children|length }} 人</h2>
+      <a href="{{ url_for('parent_tasks') }}">任务设置</a>
+    </div>
+    <ul class="child-grid{% if children|length > 1 %} has-many{% endif %}">
+      {% for item in children %}
+        {% set selected = detail_user and detail_user.id == item.user.id %}
+        <li>
+          <a class="child-card{% if selected %} is-selected{% endif %}"
+             href="{{ board_href('home', day, item.user.id, selected_kind) }}"
+             aria-pressed="{{ 'true' if selected else 'false' }}">
+            <strong class="child-name">{{ item.user.username }}</strong>
+            <p class="muted">今日新词 {{ item.task.new.done }} / {{ item.task.new.quota }}</p>
+            <p class="muted">今日复习 {{ item.task.review.done }} / {{ item.task.review.quota }}</p>
+            <p class="muted">复习 {{ item.stats.learning }} · 掌握 {{ item.stats.mastered }}</p>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% include "_learning_board.html" %}
 {% else %}
-  <div class="empty">
-    <p>还没有绑定孩子。请联系管理员，把学生账号绑到你的家长账号下。</p>
+  <div class="empty empty-large">
+    <h1>还没有绑定孩子</h1>
+    <p>请联系管理员，把学生账号绑到你的家长账号下。</p>
   </div>
 {% endif %}
 {% endblock %}

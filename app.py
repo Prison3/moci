@@ -41,6 +41,7 @@ MIN_DAILY_WORDS = 0
 MAX_DAILY_WORDS = 50
 KIND_NEW = "new"
 KIND_REVIEW = "review"
+KIND_LABELS = {KIND_NEW: "新词学习", KIND_REVIEW: "复习"}
 
 
 def _load_secret() -> str:
@@ -412,7 +413,22 @@ def inject_globals():
         "is_learner": is_learner(user),
         "csrf_token": csrf_token(),
         "active_page": request.endpoint,
+        "board_href": board_href,
     }
+
+
+def parse_kind(raw: str | None) -> str | None:
+    value = (raw or "").strip()
+    return value if value in KIND_LABELS else None
+
+
+def board_href(endpoint: str, date: str, user_id=None, kind=None) -> str:
+    kwargs: dict = {"date": date}
+    if user_id:
+        kwargs["user_id"] = user_id
+    if kind:
+        kwargs["kind"] = kind
+    return url_for(endpoint, **kwargs)
 
 
 def word_stats(user_id: int) -> dict:
@@ -455,7 +471,7 @@ def normalize_spelling(text: str) -> str:
 
 
 def schedule_review(progress, rating: str) -> dict:
-    """新词学会→了解；了解学会→掌握。不认识则回到新词。"""
+    """新词学会→复习；复习学会→掌握。不认识则回到新词。"""
     streak = (progress["correct_streak"] if progress else 0) or 0
     count = ((progress["review_count"] if progress else 0) or 0) + 1
     now = datetime.now().replace(microsecond=0)
@@ -577,6 +593,21 @@ def daily_review_of(user) -> int:
     return _user_int(user, "daily_review", DEFAULT_DAILY_REVIEW)
 
 
+def quotas_for(user_ids: list[int] | None) -> tuple[int | None, int | None]:
+    if not user_ids:
+        return None, None
+    placeholders = ",".join("?" * len(user_ids))
+    row = get_db().execute(
+        f"""
+        SELECT COALESCE(SUM(daily_words), 0) AS new_q,
+               COALESCE(SUM(daily_review), 0) AS review_q
+        FROM users WHERE id IN ({placeholders})
+        """,
+        user_ids,
+    ).fetchone()
+    return int(row["new_q"] or 0), int(row["review_q"] or 0)
+
+
 def today_reviewed_word_ids(
     user_id: int, kind: str | None = None, day: str | None = None
 ) -> list[int]:
@@ -619,6 +650,254 @@ def today_task(user_id: int, user=None) -> dict:
     }
 
 
+def month_study_calendar(user_id: int, user=None) -> dict:
+    now = datetime.now()
+    year, month = now.year, now.month
+    first = datetime(year, month, 1)
+    if month == 12:
+        nxt = datetime(year + 1, 1, 1)
+    else:
+        nxt = datetime(year, month + 1, 1)
+    last_day = (nxt - timedelta(days=1)).day
+    start = first.strftime("%Y-%m-%d 00:00:00")
+    end = (nxt - timedelta(seconds=1)).strftime("%Y-%m-%d %H:%M:%S")
+    rows = get_db().execute(
+        """
+        SELECT date(created_at) AS day,
+               COALESCE(kind, 'new') AS kind,
+               COUNT(DISTINCT word_id) AS words
+        FROM review_logs
+        WHERE user_id = ? AND created_at >= ? AND created_at <= ?
+        GROUP BY day, kind
+        """,
+        (user_id, start, end),
+    ).fetchall()
+    by_day: dict[str, dict[str, int]] = {}
+    for row in rows:
+        day = row["day"]
+        if not day:
+            continue
+        bucket = by_day.setdefault(day, {"new": 0, "review": 0})
+        if row["kind"] == KIND_REVIEW:
+            bucket["review"] = row["words"] or 0
+        else:
+            bucket["new"] = row["words"] or 0
+
+    if user is None:
+        user = get_db().execute(
+            "SELECT daily_words, daily_review FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    new_q = daily_words_of(user)
+    review_q = daily_review_of(user)
+    today = now.strftime("%Y-%m-%d")
+    cells: list[dict] = [{"blank": True} for _ in range(first.weekday())]
+    studied_days = 0
+    complete_days = 0
+    for day_n in range(1, last_day + 1):
+        date_s = f"{year:04d}-{month:02d}-{day_n:02d}"
+        bucket = by_day.get(date_s, {"new": 0, "review": 0})
+        new_n = bucket["new"]
+        review_n = bucket["review"]
+        studied = (new_n + review_n) > 0
+        remaining = max(0, new_q - new_n) + max(0, review_q - review_n)
+        complete = remaining == 0 and studied
+        future = date_s > today
+        if studied:
+            studied_days += 1
+        if complete:
+            complete_days += 1
+        cells.append(
+            {
+                "blank": False,
+                "day": day_n,
+                "date": date_s,
+                "new_n": new_n,
+                "review_n": review_n,
+                "studied": studied,
+                "complete": complete,
+                "today": date_s == today,
+                "future": future,
+            }
+        )
+    while len(cells) % 7:
+        cells.append({"blank": True})
+    today_cell = next((c for c in cells if c.get("today")), None)
+    return {
+        "year": year,
+        "month": month,
+        "title": f"{year}年{month}月",
+        "cells": cells,
+        "today_cell": today_cell,
+        "studied_days": studied_days,
+        "complete_days": complete_days,
+        "new_quota": new_q,
+        "review_quota": review_q,
+        "today": today,
+    }
+
+
+def _shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
+    month += delta
+    year += (month - 1) // 12
+    month = (month - 1) % 12 + 1
+    return year, month
+
+
+def month_learning_calendar(
+    allowed_ids: list[int] | None,
+    day: str,
+    child_count: int = 0,
+) -> dict:
+    selected = datetime.strptime(day, "%Y-%m-%d")
+    year, month = selected.year, selected.month
+    first = datetime(year, month, 1)
+    if month == 12:
+        nxt = datetime(year + 1, 1, 1)
+    else:
+        nxt = datetime(year, month + 1, 1)
+    last_day = (nxt - timedelta(days=1)).day
+    start = first.strftime("%Y-%m-%d 00:00:00")
+    end = (nxt - timedelta(seconds=1)).strftime("%Y-%m-%d %H:%M:%S")
+    today = datetime.now().strftime("%Y-%m-%d")
+    by_day: dict[str, dict[str, int]] = {}
+    if allowed_ids is None or allowed_ids:
+        extra = ""
+        params: list = [start, end]
+        if allowed_ids is not None:
+            placeholders = ",".join("?" * len(allowed_ids))
+            extra = f" AND user_id IN ({placeholders})"
+            params.extend(allowed_ids)
+        rows = get_db().execute(
+            f"""
+            SELECT date(created_at) AS day,
+                   COUNT(DISTINCT CASE WHEN COALESCE(kind, 'new') = 'new' THEN user_id || ':' || word_id END) AS new_n,
+                   COUNT(DISTINCT CASE WHEN kind = 'review' THEN user_id || ':' || word_id END) AS review_n,
+                   COUNT(DISTINCT user_id) AS learners
+            FROM review_logs
+            WHERE created_at >= ? AND created_at <= ?{extra}
+            GROUP BY day
+            """,
+            params,
+        ).fetchall()
+        for row in rows:
+            key = row["day"]
+            if not key:
+                continue
+            by_day[key] = {
+                "new": row["new_n"] or 0,
+                "review": row["review_n"] or 0,
+                "learners": row["learners"] or 0,
+            }
+
+    cells: list[dict] = [{"blank": True} for _ in range(first.weekday())]
+    studied_days = 0
+    for day_n in range(1, last_day + 1):
+        date_s = f"{year:04d}-{month:02d}-{day_n:02d}"
+        bucket = by_day.get(date_s, {"new": 0, "review": 0, "learners": 0})
+        new_n = bucket["new"]
+        review_n = bucket["review"]
+        learners = bucket["learners"]
+        studied = learners > 0 or (new_n + review_n) > 0
+        complete = child_count > 0 and learners >= child_count
+        if studied:
+            studied_days += 1
+        cells.append(
+            {
+                "blank": False,
+                "day": day_n,
+                "date": date_s,
+                "new_n": new_n,
+                "review_n": review_n,
+                "learners": learners,
+                "studied": studied,
+                "complete": complete,
+                "today": date_s == today,
+                "selected": date_s == day,
+                "future": date_s > today,
+            }
+        )
+    while len(cells) % 7:
+        cells.append({"blank": True})
+    selected_cell = next((c for c in cells if c.get("selected")), None)
+    now = datetime.now()
+    prev_y, prev_m = _shift_month(year, month, -1)
+    next_y, next_m = _shift_month(year, month, 1)
+    next_allowed = (next_y, next_m) <= (now.year, now.month)
+    new_q, review_q = quotas_for(allowed_ids)
+    return {
+        "year": year,
+        "month": month,
+        "title": f"{year}年{month}月",
+        "cells": cells,
+        "selected_cell": selected_cell,
+        "studied_days": studied_days,
+        "prev_date": f"{prev_y:04d}-{prev_m:02d}-01",
+        "next_date": f"{next_y:04d}-{next_m:02d}-01" if next_allowed else "",
+        "new_quota": new_q,
+        "review_quota": review_q,
+    }
+
+
+def day_study_words(user_id: int, day: str) -> list[dict]:
+    start, end = day_bounds(day)
+    rows = get_db().execute(
+        """
+        SELECT w.term, w.meaning, IFNULL(w.phrase, '') AS phrase, IFNULL(w.example, '') AS example,
+               COALESCE(p.status, 'new') AS status,
+               last.rating,
+               COALESCE(last.kind, 'new') AS kind
+        FROM (
+            SELECT word_id, MAX(id) AS log_id
+            FROM review_logs
+            WHERE user_id = ? AND created_at >= ? AND created_at <= ?
+            GROUP BY word_id
+        ) g
+        JOIN review_logs last ON last.id = g.log_id
+        JOIN words w ON w.id = g.word_id
+        LEFT JOIN progress p ON p.word_id = g.word_id AND p.user_id = ?
+        ORDER BY last.created_at DESC
+        """,
+        (user_id, start, end, user_id),
+    ).fetchall()
+    return [
+        {
+            "term": row["term"],
+            "meaning": row["meaning"],
+            "phrase": row["phrase"] or "",
+            "example": row["example"] or "",
+            "status": row["status"] or "new",
+            "rating": row["rating"],
+            "kind": row["kind"] or KIND_NEW,
+        }
+        for row in rows
+    ]
+
+
+def collect_day_words(
+    user_ids: list[int], day: str, kind: str | None = None
+) -> list[dict]:
+    if not user_ids:
+        return []
+    named = len(user_ids) > 1
+    names: dict[int, str] = {}
+    if named:
+        placeholders = ",".join("?" * len(user_ids))
+        rows = get_db().execute(
+            f"SELECT id, username FROM users WHERE id IN ({placeholders})",
+            user_ids,
+        ).fetchall()
+        names = {row["id"]: row["username"] for row in rows}
+    logs: list[dict] = []
+    for uid in user_ids:
+        for word in day_study_words(uid, day):
+            if kind and word["kind"] != kind:
+                continue
+            if named:
+                word["username"] = names.get(uid, "")
+            logs.append(word)
+    return logs
+
+
 def list_words(user_id: int, q: str = "", status: str = ""):
     sql = """
         SELECT w.*, COALESCE(p.status, 'new') AS status,
@@ -659,9 +938,11 @@ def parse_day(raw: str | None) -> str:
     value = (raw or "").strip()
     try:
         datetime.strptime(value, "%Y-%m-%d")
-        return value
     except ValueError:
         return today
+    if value > today:
+        return today
+    return value
 
 
 def child_ids_of(parent_id: int) -> list[int]:
@@ -771,16 +1052,7 @@ def learning_report(day: str, allowed_ids: list[int] | None = None, detail_id: i
                 (detail_id, ROLE_USER),
             ).fetchone()
             if detail_user:
-                logs = db.execute(
-                    """
-                    SELECT l.created_at, l.rating, COALESCE(l.kind, 'new') AS kind, w.term, w.meaning
-                    FROM review_logs l
-                    JOIN words w ON w.id = l.word_id
-                    WHERE l.user_id = ? AND l.created_at >= ? AND l.created_at <= ?
-                    ORDER BY l.created_at DESC
-                    """,
-                    (detail_id, start, end),
-                ).fetchall()
+                logs = day_study_words(detail_id, day)
     return {
         "summary": summary,
         "by_user": by_user,
@@ -845,18 +1117,62 @@ def home():
         )
     if is_parent(user):
         kids = children_of(user["id"])
-        day = datetime.now().strftime("%Y-%m-%d")
+        day = parse_day(request.args.get("date"))
+        raw = (request.args.get("user_id") or "").strip()
+        detail_id = int(raw) if raw.isdigit() else None
+        kind = parse_kind(request.args.get("kind")) or KIND_NEW
+        allowed = [kid["id"] for kid in kids]
+        if allowed:
+            if detail_id not in allowed:
+                detail_id = allowed[0]
+            if str(request.args.get("user_id") or "") != str(detail_id) or parse_kind(
+                request.args.get("kind")
+            ) != kind:
+                return redirect(
+                    url_for("home", date=day, user_id=detail_id, kind=kind)
+                )
+        scope = [detail_id] if detail_id else allowed
+        report = learning_report(day, allowed_ids=scope, detail_id=detail_id)
+        if kind:
+            report["logs"] = collect_day_words(
+                [detail_id] if detail_id else allowed, day, kind
+            )
+        calendar = month_learning_calendar(
+            scope, day, child_count=1 if detail_id else len(allowed)
+        )
         child_stats = []
         for kid in kids:
             ws = word_stats(kid["id"])
             task = today_task(kid["id"], kid)
             child_stats.append({"user": kid, "stats": ws, "task": task})
+        if kind == KIND_NEW:
+            empty_text = "这一天还没有新词学习记录。"
+        elif kind == KIND_REVIEW:
+            empty_text = "这一天还没有复习记录。"
+        else:
+            empty_text = "这一天还没有学习记录。"
         return render_template(
-            "parent_home.html", children=child_stats, day=day
+            "parent_home.html",
+            children=child_stats,
+            day=day,
+            calendar=calendar,
+            learning_endpoint="home",
+            selected_kind=kind,
+            kind_label=KIND_LABELS.get(kind or "", ""),
+            empty_text=empty_text,
+            **report,
         )
     stats = word_stats(user["id"])
-    task = today_task(user["id"])
-    return render_template("home.html", stats=stats, task=task)
+    task = today_task(user["id"], user)
+    calendar = month_study_calendar(user["id"], user)
+    day_words = day_study_words(user["id"], calendar["today"])
+    return render_template(
+        "home.html",
+        stats=stats,
+        task=task,
+        calendar=calendar,
+        day_words=day_words,
+    )
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -1243,6 +1559,14 @@ def api_review(word_id: int):
     return jsonify({"ok": True, "remaining": remaining, **patch})
 
 
+@app.route("/api/study-day")
+@learner_required
+def api_study_day():
+    day = parse_day(request.args.get("date"))
+    words = day_study_words(current_user()["id"], day)
+    return jsonify({"ok": True, "date": day, "words": words})
+
+
 @app.route("/me")
 @login_required
 def profile():
@@ -1461,29 +1785,15 @@ def admin_learning():
     raw = (request.args.get("user_id") or "").strip()
     detail_id = int(raw) if raw.isdigit() else None
     report = learning_report(day, allowed_ids=None, detail_id=detail_id)
+    calendar = month_learning_calendar(None, day)
     return render_template(
         "admin_learning.html",
         day=day,
+        calendar=calendar,
         learning_endpoint="admin_learning",
+        selected_kind=None,
+        kind_label="",
         empty_text="这一天还没有学生的学习记录。",
-        **report,
-    )
-
-
-@app.route("/learning")
-@parent_required
-def parent_learning():
-    user = current_user()
-    day = parse_day(request.args.get("date"))
-    raw = (request.args.get("user_id") or "").strip()
-    detail_id = int(raw) if raw.isdigit() else None
-    allowed = child_ids_of(user["id"])
-    report = learning_report(day, allowed_ids=allowed, detail_id=detail_id)
-    return render_template(
-        "admin_learning.html",
-        day=day,
-        learning_endpoint="parent_learning",
-        empty_text="这一天孩子们还没有学习记录。",
         **report,
     )
 

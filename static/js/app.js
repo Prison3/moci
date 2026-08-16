@@ -63,6 +63,129 @@
     speakEnglish(btn.getAttribute("data-speak") || "", btn);
   });
 
+  const cal = document.querySelector(".month-cal");
+  if (cal) {
+    const detail = document.getElementById("cal-detail");
+    const logs = document.getElementById("cal-logs");
+    const cache = new Map();
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function statusText(status) {
+      if (status === "learning") return "现为复习";
+      if (status === "mastered") return "现为掌握";
+      return "现为新词";
+    }
+
+    function statusClass(status) {
+      if (status === "learning") return "badge-learning";
+      if (status === "mastered") return "badge-mastered";
+      return "badge-new";
+    }
+
+    function speakBtn(text, label) {
+      const safe = escapeHtml(text || "");
+      return `<button type="button" class="speak-btn speak-inline" data-speak="${safe}" aria-label="${escapeHtml(label)}">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path class="speak-body" d="M3 10v4h3.2L11 18.5V5.5L6.2 10H3Z"/>
+          <path class="speak-wave speak-wave-1" d="M14 9.15a3.15 3.15 0 0 1 0 5.7"/>
+          <path class="speak-wave speak-wave-2" d="M16.55 7.15a5.5 5.5 0 0 1 0 9.7"/>
+        </svg>
+      </button>`;
+    }
+
+    function extraLine(label, text) {
+      if (!text) return "";
+      return `<p class="extra${label === "例句" ? " example" : ""}"><span class="extra-label">${label}</span> ${escapeHtml(text)} ${speakBtn(text, "朗读" + label)}</p>`;
+    }
+
+    function renderWords(words) {
+      if (!logs) return;
+      if (!words || !words.length) {
+        logs.innerHTML = '<p class="muted cal-empty">这一天还没有学习记录。</p>';
+        return;
+      }
+      const items = words
+        .map((row) => {
+          const kindClass = row.kind === "review" ? "badge-learning" : "badge-new";
+          const kindText = row.kind === "review" ? "复习" : "学新词";
+          const ratingClass = row.rating === "easy" ? "badge-mastered" : "badge-new";
+          const ratingText = row.rating === "easy" ? "学会" : "不认识";
+          return `<li class="log-row cal-word">
+            <div class="cal-word-head">
+              <div>
+                <strong class="term">${escapeHtml(row.term)}</strong>
+                ${speakBtn(row.term, "朗读单词")}
+                <p>${escapeHtml(row.meaning || "")}</p>
+              </div>
+              <div class="log-tags">
+                <span class="badge ${kindClass}">${kindText}</span>
+                <span class="badge ${ratingClass}">${ratingText}</span>
+                <span class="badge ${statusClass(row.status)}">${statusText(row.status)}</span>
+              </div>
+            </div>
+            ${extraLine("短语", row.phrase)}
+            ${extraLine("例句", row.example)}
+          </li>`;
+        })
+        .join("");
+      logs.innerHTML = `<ul class="word-list cal-logs">${items}</ul>`;
+    }
+
+    function calLabel(cell) {
+      const day = cell.getAttribute("data-day");
+      const newN = cell.getAttribute("data-new");
+      const reviewN = cell.getAttribute("data-review");
+      const newQ = cell.getAttribute("data-new-q");
+      const reviewQ = cell.getAttribute("data-review-q");
+      const prefix = cell.getAttribute("data-today") === "1" ? "今天" : `${day}日`;
+      let state = "还没学";
+      if (cell.getAttribute("data-future") === "1") state = "还没到";
+      else if (cell.getAttribute("data-complete") === "1") state = "已完成";
+      else if (cell.getAttribute("data-studied") === "1") state = "进行中";
+      return `${prefix}：新词 ${newN} / ${newQ} · 复习 ${reviewN} / ${reviewQ} · ${state}`;
+    }
+
+    async function loadDay(cell) {
+      const date = cell.getAttribute("data-date");
+      if (!date) return;
+      if (cache.has(date)) {
+        renderWords(cache.get(date));
+        return;
+      }
+      if (logs) logs.innerHTML = '<p class="muted cal-empty">加载中…</p>';
+      try {
+        const res = await fetch(`/api/study-day?date=${encodeURIComponent(date)}`);
+        if (!res.ok) throw new Error("load failed");
+        const data = await res.json();
+        const words = data.words || [];
+        cache.set(date, words);
+        renderWords(words);
+      } catch (_err) {
+        if (logs) logs.innerHTML = '<p class="muted cal-empty">加载失败，请稍后重试。</p>';
+      }
+    }
+
+    cal.addEventListener("click", (event) => {
+      const cell = event.target.closest(".cal-cell[data-date]");
+      if (!cell || cell.disabled || cell.classList.contains("is-future")) return;
+      cal.querySelectorAll(".cal-cell.is-selected").forEach((el) => {
+        el.classList.remove("is-selected");
+        el.setAttribute("aria-pressed", "false");
+      });
+      cell.classList.add("is-selected");
+      cell.setAttribute("aria-pressed", "true");
+      if (detail) detail.textContent = calLabel(cell);
+      loadDay(cell);
+    });
+  }
+
   const wrap = document.querySelector(".review-wrap");
   if (!wrap) return;
 

@@ -32,8 +32,8 @@
             <a class="brand" href="{{ url_for('home') if current_user else url_for('login') }}">墨词</a>
             <p class="topbar-sub">{% block subtitle %}公共词库，各自背诵{% endblock %}</p>
           </div>
-          {% if is_admin or is_parent %}
-            <a class="topbar-link" href="{{ url_for('profile') }}">账号</a>
+          {% if current_user %}
+            <a class="topbar-user" href="{{ url_for('profile') }}" title="{{ current_user.username }}">{{ current_user.username }}</a>
           {% endif %}
         {% endblock %}
       </div>
@@ -44,7 +44,7 @@
     </main>
 
     {% if current_user %}
-    <nav class="tabbar {% if is_learner %}tabs-3{% endif %}" aria-label="主导航">
+    <nav class="tabbar {% if is_learner or is_parent %}tabs-3{% endif %}" aria-label="主导航">
       <a class="tab {% if active_page == 'home' %}is-active{% endif %}" href="{{ url_for('home') }}">
         <span class="tab-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z"/></svg>
@@ -71,12 +71,6 @@
         学情
       </a>
       {% elif is_parent %}
-      <a class="tab {% if active_page == 'parent_learning' %}is-active{% endif %}" href="{{ url_for('parent_learning') }}">
-        <span class="tab-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="M5 19V9h3v10H5Zm6 0V5h3v14h-3Zm6 0v-6h3v6h-3Z"/></svg>
-        </span>
-        学情
-      </a>
       <a class="tab {% if active_page == 'parent_tasks' %}is-active{% endif %}" href="{{ url_for('parent_tasks') }}">
         <span class="tab-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M7 3h10a2 2 0 0 1 2 2v16H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm2 5h6v2H9V8Zm0 4h6v2H9v-2Zm0 4h4v2H9v-2Z"/></svg>
