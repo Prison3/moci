@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}用户管理 · 墨词{% endblock %}
+{% block subtitle %}{% if pending_count %}{{ pending_count }} 人待审核{% else %}共 {{ users|length }} 人{% endif %}{% endblock %}
+{% block content %}
+<section class="panel">
+  <h1 class="page-title">用户管理</h1>
+  <p class="muted">学生和家长注册后需审核。家长绑定孩子后，只能查看这些孩子的学习情况。</p>
+</section>
+
+<ul class="user-list">
+  {% for u in users %}
+    <li class="user-row">
+      <div>
+        <strong>{{ u.username }}</strong>
+        {% if u.id == current_user.id %}<span class="muted">（我）</span>{% endif %}
+        <p class="muted">{{ u.created_at }}</p>
+        {% if u.role == 'parent' %}
+          {% set kids = children_map.get(u.id, []) %}
+          {% if kids %}
+            <p class="muted">孩子：{% for kid in kids %}{{ kid.username }}{% if not loop.last %}、{% endif %}{% endfor %}</p>
+          {% else %}
+            <p class="muted">尚未绑定孩子</p>
+          {% endif %}
+        {% endif %}
+      </div>
+      <div class="user-actions">
+        {% if u.role == 'admin' %}
+          <span class="badge badge-mastered">管理员</span>
+          <form method="post" action="{{ url_for('admin_set_role', user_id=u.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="role" value="user">
+            <button class="btn btn-ghost btn-compact" type="submit" {% if admin_count <= 1 %}disabled{% endif %}>设为学生</button>
+          </form>
+        {% else %}
+          <span class="badge {% if u.role == 'parent' %}badge-learning{% elif u.status == 'approved' %}badge-mastered{% elif u.status == 'rejected' %}badge-new{% else %}badge-learning{% endif %}">
+            {% if u.role == 'parent' %}家长{% else %}学生{% endif %}
+            ·
+            {% if u.status == 'approved' %}已同意{% elif u.status == 'rejected' %}已拒绝{% else %}待审核{% endif %}
+          </span>
+          {% if u.status != 'approved' %}
+            <form method="post" action="{{ url_for('admin_set_status', user_id=u.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="status" value="approved">
+              <button class="btn btn-primary btn-compact" type="submit">同意</button>
+            </form>
+          {% endif %}
+          {% if u.status != 'rejected' %}
+            <form method="post" action="{{ url_for('admin_set_status', user_id=u.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="status" value="rejected">
+              <button class="btn btn-danger btn-compact" type="submit">拒绝</button>
+            </form>
+          {% endif %}
+          {% if u.status == 'approved' and u.role == 'user' %}
+            <a class="btn btn-ghost btn-compact" href="{{ url_for('admin_learning', user_id=u.id) }}">学习情况</a>
+          {% endif %}
+          {% if u.status == 'approved' and u.role == 'parent' %}
+            <form class="bind-form" method="post" action="{{ url_for('admin_bind_child', user_id=u.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <select name="child_id" required>
+                <option value="">选择孩子</option>
+                {% for s in students %}
+                  <option value="{{ s.id }}">{{ s.username }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-primary btn-compact" type="submit">绑定</button>
+            </form>
+            {% for kid in children_map.get(u.id, []) %}
+              <form method="post" action="{{ url_for('admin_unbind_child', user_id=u.id, child_id=kid.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="btn btn-ghost btn-compact" type="submit">取消 {{ kid.username }}</button>
+              </form>
+            {% endfor %}
+          {% endif %}
+          {% if u.status == 'approved' %}
+            {% if u.role != 'parent' %}
+              <form method="post" action="{{ url_for('admin_set_role', user_id=u.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="role" value="parent">
+                <button class="btn btn-ghost btn-compact" type="submit">设为家长</button>
+              </form>
+            {% endif %}
+            {% if u.role != 'user' %}
+              <form method="post" action="{{ url_for('admin_set_role', user_id=u.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="role" value="user">
+                <button class="btn btn-ghost btn-compact" type="submit">设为学生</button>
+              </form>
+            {% endif %}
+            <form method="post" action="{{ url_for('admin_set_role', user_id=u.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="role" value="admin">
+              <button class="btn btn-ghost btn-compact" type="submit">设为管理员</button>
+            </form>
+          {% endif %}
+        {% endif %}
+      </div>
+    </li>
+  {% endfor %}
+</ul>
+{% endblock %}

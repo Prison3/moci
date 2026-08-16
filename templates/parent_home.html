@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}孩子学习 · 墨词{% endblock %}
+{% block subtitle %}查看孩子的学习情况{% endblock %}
+{% block content %}
+<section class="hero">
+  <p class="eyebrow">{{ current_user.username }} · 家长</p>
+  <h1>孩子 <em>{{ children|length }}</em> 人</h1>
+  <div class="hero-actions">
+    <a class="btn btn-primary" href="{{ url_for('parent_learning') }}">按日期查看</a>
+    <a class="btn btn-ghost" href="{{ url_for('parent_tasks') }}">学习任务</a>
+  </div>
+</section>
+
+{% if children %}
+  <ul class="user-list">
+    {% for item in children %}
+      <li class="user-row">
+        <div>
+          <strong>{{ item.user.username }}</strong>
+          <p class="muted">今日任务 {{ item.task.done }} / {{ item.task.quota }} 词</p>
+          <p class="muted">已掌握 {{ item.stats.mastered }} · 待学习 {{ item.stats.due }}</p>
+        </div>
+        <a class="btn btn-ghost btn-compact" href="{{ url_for('parent_learning', date=day, user_id=item.user.id) }}">今日明细</a>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <div class="empty">
+    <p>还没有绑定孩子。请联系管理员，把学生账号绑到你的家长账号下。</p>
+  </div>
+{% endif %}
+{% endblock %}

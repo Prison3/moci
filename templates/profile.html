@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}我的 · 墨词{% endblock %}
+{% block subtitle %}账号{% endblock %}
+{% block content %}
+<section class="panel profile-card">
+  <p class="eyebrow">当前账号</p>
+  <h1>{{ current_user.username }}</h1>
+  <p>
+    <span class="badge {% if is_admin %}badge-mastered{% elif is_parent %}badge-learning{% else %}badge-mastered{% endif %}">
+      {% if is_admin %}管理员{% elif is_parent %}家长{% else %}学生{% endif %}
+    </span>
+  </p>
+  <p class="muted">注册于 {{ current_user.created_at }}</p>
+</section>
+
+{% if is_learner and stats %}
+<section class="stats-grid stats-3">
+  <article class="stat"><strong>{{ stats.total }}</strong><span>单词</span></article>
+  <article class="stat"><strong>{{ stats.due }}</strong><span>待学习</span></article>
+  <article class="stat"><strong>{{ stats.mastered }}</strong><span>已掌握</span></article>
+</section>
+{% endif %}
+
+<section class="panel">
+  {% if is_admin %}
+    <h2>管理</h2>
+    <p class="muted">管理员负责审核注册、维护词库，并把学生绑定给家长。</p>
+    <a class="btn btn-primary btn-block" href="{{ url_for('admin_users') }}">管理用户</a>
+    <a class="btn btn-ghost btn-block" href="{{ url_for('admin_learning') }}">学习情况</a>
+    <a class="btn btn-ghost btn-block" href="{{ url_for('word_new') }}">录入单词</a>
+  {% elif is_parent %}
+    <h2>家长</h2>
+    <p class="muted">你可以查看已绑定孩子的学习情况，不能替孩子背单词。</p>
+    {% if children %}
+      <p class="muted">孩子：{% for kid in children %}{{ kid.username }}{% if not loop.last %}、{% endif %}{% endfor %}</p>
+    {% endif %}
+    <a class="btn btn-primary btn-block" href="{{ url_for('parent_learning') }}">查看学情</a>
+    <a class="btn btn-ghost btn-block" href="{{ url_for('parent_tasks') }}">学习任务</a>
+  {% else %}
+    <h2>关于角色</h2>
+    <p class="muted">你是学生，通过「学习」背单词。家长账号由管理员绑定后，可以查看你的学习情况。</p>
+  {% endif %}
+</section>
+
+{% if is_parent or is_learner %}
+<section class="panel">
+  <h2>切换账号</h2>
+  {% if is_parent %}
+    <p class="muted">可以直接切换到孩子账号，不用再输入密码。</p>
+    {% if children %}
+      {% for kid in children %}
+        {% if kid.status == 'approved' %}
+          <form class="switch-form" method="post" action="{{ url_for('switch_account') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="target_id" value="{{ kid.id }}">
+            <div class="switch-row">
+              <div>
+                <strong>{{ kid.username }}</strong>
+                <p class="muted">学生</p>
+              </div>
+              <button class="btn btn-primary btn-compact" type="submit">切换</button>
+            </div>
+          </form>
+        {% endif %}
+      {% endfor %}
+    {% else %}
+      <p class="muted">还没有绑定孩子。</p>
+    {% endif %}
+  {% else %}
+    <p class="muted">切换到家长时，需要输入该家长的登录密码。</p>
+    {% if parents %}
+      {% for p in parents %}
+        {% if p.status == 'approved' %}
+          <form class="switch-form" method="post" action="{{ url_for('switch_account') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="target_id" value="{{ p.id }}">
+            <p><strong>{{ p.username }}</strong> · 家长</p>
+            <label>
+              <span>家长登录密码</span>
+              <input type="password" name="password" required minlength="6" autocomplete="off">
+            </label>
+            <button class="btn btn-primary btn-block" type="submit">切换到该家长</button>
+          </form>
+        {% endif %}
+      {% endfor %}
+    {% else %}
+      <p class="muted">还没有绑定家长。</p>
+    {% endif %}
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="panel">
+  <a class="btn btn-ghost btn-block" href="{{ url_for('logout') }}">退出登录</a>
+</section>
+{% endblock %}

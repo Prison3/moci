@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}学习任务 · 墨词{% endblock %}
+{% block subtitle %}设置每日单词量{% endblock %}
+{% block content %}
+<section class="panel">
+  <h1 class="page-title">学习任务</h1>
+  <p class="muted">给每个孩子设定每天要学几个单词。学完当天数量后，任务即完成。</p>
+</section>
+
+{% if children %}
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {% for item in children %}
+      <section class="panel task-card">
+        <div class="panel-head">
+          <h2>{{ item.user.username }}</h2>
+          <span class="muted">今日 {{ item.task.done }} / {{ item.task.quota }}</span>
+        </div>
+        <label>
+          <span>每日单词量（1–50）</span>
+          <input type="number" name="daily_words_{{ item.user.id }}" value="{{ item.task.quota }}" min="1" max="50" required inputmode="numeric">
+        </label>
+      </section>
+    {% endfor %}
+    <button class="btn btn-primary btn-block" type="submit">保存设置</button>
+  </form>
+{% else %}
+  <div class="empty">
+    <p>还没有绑定孩子。请联系管理员，把学生账号绑到你的家长账号下。</p>
+  </div>
+{% endif %}
+{% endblock %}

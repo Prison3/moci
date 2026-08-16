@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == 'edit' %}编辑单词{% else %}录入单词{% endif %} · 墨词{% endblock %}
+{% block subtitle %}{% if mode == 'edit' %}修改词条{% else %}写进词本{% endif %}{% endblock %}
+{% block content %}
+<section class="panel">
+  <h1 class="page-title">{% if mode == 'edit' %}编辑单词{% else %}录入单词{% endif %}</h1>
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      <span>单词</span>
+      <input type="text" name="term" required maxlength="80" value="{{ word.term if word else '' }}" placeholder="apple" autocapitalize="none">
+    </label>
+    <label>
+      <span>音标（可选）</span>
+      <input type="text" name="phonetic" maxlength="80" value="{{ word.phonetic if word else '' }}" placeholder="/ˈæp.əl/">
+    </label>
+    <label>
+      <span>释义</span>
+      <textarea name="meaning" required maxlength="400" rows="3" placeholder="苹果；公司名">{{ word.meaning if word else '' }}</textarea>
+    </label>
+    <label>
+      <span>例句（可选）</span>
+      <textarea name="example" maxlength="400" rows="3" placeholder="She ate an apple.">{{ word.example if word else '' }}</textarea>
+    </label>
+    <label>
+      <span>备注（可选）</span>
+      <textarea name="notes" maxlength="400" rows="2" placeholder="易混词、记忆技巧">{{ word.notes if word else '' }}</textarea>
+    </label>
+    <button class="btn btn-primary btn-block" type="submit">保存</button>
+    {% if mode == 'new' %}
+      <button class="btn btn-ghost btn-block" type="submit" name="again" value="1">保存并继续录入</button>
+    {% endif %}
+  </form>
+  {% if mode == 'edit' and word %}
+    <form method="post" action="{{ url_for('word_delete', word_id=word.id) }}" class="danger-form" onsubmit="return confirm('确定删除这个单词？');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="btn btn-danger btn-block" type="submit">删除单词</button>
+    </form>
+  {% endif %}
+</section>
+{% endblock %}

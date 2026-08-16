@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}学习情况 · 墨词{% endblock %}
+{% block subtitle %}按日期查看{% endblock %}
+{% block content %}
+<section class="panel">
+  <h1 class="page-title">学习情况</h1>
+  <form class="date-bar" method="get" action="{{ url_for(learning_endpoint) }}">
+    <label>
+      <span>日期</span>
+      <input type="date" name="date" value="{{ day }}" required>
+    </label>
+    {% if detail_user %}
+      <input type="hidden" name="user_id" value="{{ detail_user.id }}">
+    {% endif %}
+    <button class="btn btn-primary" type="submit">查看</button>
+  </form>
+</section>
+
+<section class="stats-grid" aria-label="当日汇总">
+  <article class="stat"><strong>{{ summary.learners or 0 }}</strong><span>学习人数</span></article>
+  <article class="stat"><strong>{{ summary.reviews or 0 }}</strong><span>学习次数</span></article>
+  <article class="stat"><strong>{{ summary.easy_n or 0 }}</strong><span>认识</span></article>
+  <article class="stat"><strong>{{ summary.again_n or 0 }}</strong><span>不认识</span></article>
+</section>
+
+{% if by_user %}
+  <section class="panel">
+    <h2>{{ day }} 有学习记录的用户</h2>
+    <ul class="user-list">
+      {% for u in by_user %}
+        <li class="user-row">
+          <div>
+            <strong>{{ u.username }}</strong>
+            <p class="muted">学习 {{ u.reviews }} 次 · {{ u.words }} 个词 · 最近 {{ u.last_at }}</p>
+            <p class="muted">认识 {{ u.easy_n }} · 不认识 {{ u.again_n }}</p>
+          </div>
+          <a class="btn btn-ghost btn-compact" href="{{ url_for(learning_endpoint, date=day, user_id=u.id) }}">明细</a>
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+{% else %}
+  <div class="empty">
+    <p>{{ empty_text }}</p>
+  </div>
+{% endif %}
+
+{% if detail_user %}
+  <section class="panel">
+    <div class="panel-head">
+      <h2>{{ detail_user.username }} 的明细</h2>
+      <a href="{{ url_for(learning_endpoint, date=day) }}">返回汇总</a>
+    </div>
+    {% if logs %}
+      <ul class="word-list">
+        {% for row in logs %}
+          <li class="log-row">
+            <div>
+              <strong class="term">{{ row.term }}</strong>
+              <p>{{ row.meaning }}</p>
+              <p class="muted">{{ row.created_at }}</p>
+            </div>
+            <span class="badge {% if row.rating == 'easy' %}badge-mastered{% else %}badge-new{% endif %}">
+              {% if row.rating == 'easy' %}认识{% else %}不认识{% endif %}
+            </span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">该用户这一天没有学习记录。</p>
+    {% endif %}
+  </section>
+{% endif %}
+{% endblock %}

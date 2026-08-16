@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}首页 · 墨词{% endblock %}
+{% block subtitle %}{% if is_admin %}管理词库与用户{% else %}今天也把几个词留下来{% endif %}{% endblock %}
+{% block content %}
+<section class="hero">
+  <p class="eyebrow">
+    {{ current_user.username }}
+    ·
+    {% if is_admin %}管理员{% elif is_parent %}家长{% else %}学生{% endif %}
+  </p>
+  {% if is_admin %}
+    <h1>词库 <em>{{ stats.total }}</em> 词</h1>
+    <p class="muted">学生 {{ user_count }} 人 · 家长 {{ parent_count }} 人{% if pending_count %} · 待审核 {{ pending_count }} 人{% endif %}</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="{{ url_for('word_new') }}">录入单词</a>
+      <a class="btn btn-ghost" href="{{ url_for('admin_users') }}">管理用户</a>
+    </div>
+  {% else %}
+    <h1>今日待学习 <em>{{ task.remaining }}</em></h1>
+    <p class="muted">今日任务 {{ task.done }} / {{ task.quota }} 词</p>
+    <div class="hero-actions">
+      {% if task.remaining > 0 %}
+        <a class="btn btn-primary" href="{{ url_for('review') }}">开始学习</a>
+      {% else %}
+        <a class="btn btn-primary" href="{{ url_for('review') }}">今日已完成</a>
+      {% endif %}
+    </div>
+  {% endif %}
+</section>
+
+{% if is_admin %}
+  {% if pending %}
+    <section class="panel">
+      <div class="panel-head">
+        <h2>待审核注册</h2>
+        <a href="{{ url_for('admin_users') }}">全部用户</a>
+      </div>
+      <ul class="user-list">
+        {% for u in pending %}
+          <li class="user-row">
+            <div>
+              <strong>{{ u.username }}</strong>
+              <p class="muted">{% if u.role == 'parent' %}家长{% else %}学生{% endif %} · {{ u.created_at }}</p>
+            </div>
+            <div class="user-actions">
+              <form method="post" action="{{ url_for('admin_set_status', user_id=u.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="status" value="approved">
+                <button class="btn btn-primary btn-compact" type="submit">同意</button>
+              </form>
+              <form method="post" action="{{ url_for('admin_set_status', user_id=u.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="status" value="rejected">
+                <button class="btn btn-danger btn-compact" type="submit">拒绝</button>
+              </form>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+  <section class="panel">
+    <div class="panel-head">
+      <h2>最近录入</h2>
+      <a href="{{ url_for('words') }}">全部词库</a>
+    </div>
+    {% if recent %}
+      <ul class="word-list">
+        {% for w in recent %}
+          <li>
+            <a class="word-row" href="{{ url_for('word_detail', word_id=w.id) }}">
+              <div>
+                <strong class="term">{{ w.term }}</strong>
+                {% if w.phonetic %}<span class="phonetic">{{ w.phonetic }}</span>{% endif %}
+                <p>{{ w.meaning }}</p>
+              </div>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="empty">
+        <p>词库还是空的，先录入一些单词供大家学习。</p>
+        <a class="btn btn-primary" href="{{ url_for('word_new') }}">录入第一个单词</a>
+      </div>
+    {% endif %}
+  </section>
+{% else %}
+  <section class="stats-grid stats-3" aria-label="学习统计">
+    <article class="stat">
+      <strong>{{ stats.total }}</strong>
+      <span>单词</span>
+    </article>
+    <article class="stat">
+      <strong>{{ stats.new_count }}</strong>
+      <span>新词</span>
+    </article>
+    <article class="stat">
+      <strong>{{ stats.mastered }}</strong>
+      <span>已掌握</span>
+    </article>
+  </section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}学习 · 墨词{% endblock %}
+{% block subtitle %}点认识后需默写拼写{% endblock %}
+{% block content %}
+<section class="review-wrap" data-csrf="{{ csrf_token }}">
+  {% if cards %}
+    <p class="progress-label"><span id="done-count">0</span> / {{ cards|length }}</p>
+    <div class="progress"><div class="progress-bar" id="progress-bar"></div></div>
+
+    <div id="deck">
+      {% for w in cards %}
+        <article class="flashcard {% if loop.first %}is-current{% else %}is-queued{% endif %}"
+                 data-id="{{ w.id }}"
+                 data-index="{{ loop.index0 }}">
+          <button type="button" class="card-face" aria-label="翻转卡片">
+            <span class="card-kicker">{% if w.status == 'new' %}新词{% else %}学习{% endif %}</span>
+            <strong class="card-term">{{ w.term }}</strong>
+            {% if w.phonetic %}<span class="phonetic">{{ w.phonetic }}</span>{% endif %}
+            <span class="hint">点按查看释义</span>
+          </button>
+          <div class="card-back">
+            <p class="meaning">{{ w.meaning }}</p>
+            {% if w.example %}<p class="example">{{ w.example }}</p>{% endif %}
+            {% if w.notes %}<p class="notes">{{ w.notes }}</p>{% endif %}
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+
+    <div class="rate-bar" id="rate-bar" hidden>
+      <button type="button" class="rate rate-again" data-rating="again">不认识</button>
+      <button type="button" class="rate rate-easy" data-rating="easy">认识</button>
+    </div>
+
+    <form class="spell-panel" id="spell-panel" hidden>
+      <label>
+        <span>请默写完整单词</span>
+        <input id="spell-input" type="text" name="spelling" maxlength="80" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="输入英文拼写">
+      </label>
+      <p class="spell-error" id="spell-error" hidden>拼写不正确，请再试一次，或改选「不认识」。</p>
+      <button class="btn btn-primary btn-block" type="submit">确认拼写</button>
+      <button class="btn btn-ghost btn-block" type="button" id="spell-cancel">返回</button>
+    </form>
+  {% else %}
+    <div class="empty empty-large">
+      {% if stats.total == 0 %}
+        <h1>词库还是空的</h1>
+        <p>请等待管理员录入单词。</p>
+        <a class="btn btn-primary" href="{{ url_for('home') }}">回到首页</a>
+      {% elif task and task.remaining == 0 %}
+        <h1>今日任务已完成</h1>
+        <p>今天已学 {{ task.quota }} 个词，明天再来。</p>
+        <a class="btn btn-primary" href="{{ url_for('home') }}">回到首页</a>
+      {% else %}
+        <h1>今天没有待学习单词</h1>
+        <p>稍后再来，或明天继续学习。</p>
+        <a class="btn btn-primary" href="{{ url_for('home') }}">回到首页</a>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <div class="empty empty-large" id="done-panel" hidden>
+    <h1>本轮学习完成</h1>
+    <p>不熟悉的词会很快再出现。</p>
+    <a class="btn btn-primary" href="{{ url_for('home') }}">回到首页</a>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+  window.REVIEW_TOTAL = {{ cards|length }};
+</script>
+{% endblock %}
