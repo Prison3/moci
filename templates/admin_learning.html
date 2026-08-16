@@ -18,9 +18,9 @@
 
 <section class="stats-grid" aria-label="当日汇总">
   <article class="stat"><strong>{{ summary.learners or 0 }}</strong><span>学习人数</span></article>
+  <article class="stat"><strong>{{ summary.new_n or 0 }}</strong><span>新词学习</span></article>
+  <article class="stat"><strong>{{ summary.review_n or 0 }}</strong><span>了解复习</span></article>
   <article class="stat"><strong>{{ summary.reviews or 0 }}</strong><span>学习次数</span></article>
-  <article class="stat"><strong>{{ summary.easy_n or 0 }}</strong><span>认识</span></article>
-  <article class="stat"><strong>{{ summary.again_n or 0 }}</strong><span>不认识</span></article>
 </section>
 
 {% if by_user %}
@@ -31,8 +31,8 @@
         <li class="user-row">
           <div>
             <strong>{{ u.username }}</strong>
-            <p class="muted">学习 {{ u.reviews }} 次 · {{ u.words }} 个词 · 最近 {{ u.last_at }}</p>
-            <p class="muted">认识 {{ u.easy_n }} · 不认识 {{ u.again_n }}</p>
+            <p class="muted">新词 {{ u.new_n or 0 }} · 了解 {{ u.review_n or 0 }} · 最近 {{ u.last_at }}</p>
+            <p class="muted">学会 {{ u.easy_n }} · 不认识 {{ u.again_n }}</p>
           </div>
           <a class="btn btn-ghost btn-compact" href="{{ url_for(learning_endpoint, date=day, user_id=u.id) }}">明细</a>
         </li>
@@ -60,9 +60,14 @@
               <p>{{ row.meaning }}</p>
               <p class="muted">{{ row.created_at }}</p>
             </div>
-            <span class="badge {% if row.rating == 'easy' %}badge-mastered{% else %}badge-new{% endif %}">
-              {% if row.rating == 'easy' %}认识{% else %}不认识{% endif %}
-            </span>
+            <div class="log-tags">
+              <span class="badge {% if row.kind == 'review' %}badge-learning{% else %}badge-new{% endif %}">
+                {% if row.kind == 'review' %}了解{% else %}新词{% endif %}
+              </span>
+              <span class="badge {% if row.rating == 'easy' %}badge-mastered{% else %}badge-new{% endif %}">
+                {% if row.rating == 'easy' %}学会{% else %}不认识{% endif %}
+              </span>
+            </div>
           </li>
         {% endfor %}
       </ul>

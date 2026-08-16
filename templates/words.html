@@ -11,7 +11,8 @@
 <div class="filters" role="tablist">
   <a class="chip {% if not status %}is-active{% endif %}" href="{{ url_for('words', q=q) }}">全部</a>
   <a class="chip {% if status == 'new' %}is-active{% endif %}" href="{{ url_for('words', q=q, status='new') }}">新词</a>
-  <a class="chip {% if status == 'mastered' %}is-active{% endif %}" href="{{ url_for('words', q=q, status='mastered') }}">已掌握</a>
+  <a class="chip {% if status == 'learning' %}is-active{% endif %}" href="{{ url_for('words', q=q, status='learning') }}">了解</a>
+  <a class="chip {% if status == 'mastered' %}is-active{% endif %}" href="{{ url_for('words', q=q, status='mastered') }}">掌握</a>
 </div>
 {% endif %}
 
@@ -40,7 +41,7 @@
           </div>
           {% if not is_admin %}
             <span class="badge badge-{{ w.status }}">
-              {% if w.status == 'new' %}新词{% elif w.status == 'mastered' %}已掌握{% endif %}
+              {% if w.status == 'new' %}新词{% elif w.status == 'learning' %}了解{% elif w.status == 'mastered' %}掌握{% endif %}
             </span>
           {% endif %}
         </a>

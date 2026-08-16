@@ -16,8 +16,8 @@
       <a class="btn btn-ghost" href="{{ url_for('admin_users') }}">管理用户</a>
     </div>
   {% else %}
-    <h1>今日待学习 <em>{{ task.remaining }}</em></h1>
-    <p class="muted">今日任务 {{ task.done }} / {{ task.quota }} 词</p>
+    <h1>今日待完成 <em>{{ task.remaining }}</em></h1>
+    <p class="muted">新词 {{ task.new.done }} / {{ task.new.quota }} · 了解 {{ task.review.done }} / {{ task.review.quota }}</p>
     <div class="hero-actions">
       {% if task.remaining > 0 %}
         <a class="btn btn-primary" href="{{ url_for('review') }}">开始学习</a>
@@ -86,7 +86,7 @@
     {% endif %}
   </section>
 {% else %}
-  <section class="stats-grid stats-3" aria-label="学习统计">
+  <section class="stats-grid" aria-label="学习统计">
     <article class="stat">
       <strong>{{ stats.total }}</strong>
       <span>单词</span>
@@ -96,8 +96,12 @@
       <span>新词</span>
     </article>
     <article class="stat">
+      <strong>{{ stats.learning }}</strong>
+      <span>了解</span>
+    </article>
+    <article class="stat">
       <strong>{{ stats.mastered }}</strong>
-      <span>已掌握</span>
+      <span>掌握</span>
     </article>
   </section>
 {% endif %}

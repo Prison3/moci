@@ -89,6 +89,13 @@ textarea {
   padding: 14px 4px;
 }
 
+.log-tags {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+  flex: none;
+}
+
 .brand {
   font-family: var(--serif);
   font-size: 28px;

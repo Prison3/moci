@@ -35,9 +35,12 @@ ROLE_PARENT = "parent"
 STATUS_PENDING = "pending"
 STATUS_APPROVED = "approved"
 STATUS_REJECTED = "rejected"
-DEFAULT_DAILY_WORDS = 10
-MIN_DAILY_WORDS = 1
+DEFAULT_DAILY_WORDS = 8
+DEFAULT_DAILY_REVIEW = 8
+MIN_DAILY_WORDS = 0
 MAX_DAILY_WORDS = 50
+KIND_NEW = "new"
+KIND_REVIEW = "review"
 
 
 def _load_secret() -> str:
@@ -96,7 +99,8 @@ def init_db() -> None:
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'user',
             status TEXT NOT NULL DEFAULT 'pending',
-            daily_words INTEGER NOT NULL DEFAULT 10,
+            daily_words INTEGER NOT NULL DEFAULT 8,
+            daily_review INTEGER NOT NULL DEFAULT 8,
             created_at TEXT NOT NULL
         )
         """
@@ -119,7 +123,11 @@ def init_db() -> None:
         )
     if "daily_words" not in _columns(db, "users"):
         db.execute(
-            "ALTER TABLE users ADD COLUMN daily_words INTEGER NOT NULL DEFAULT 10"
+            "ALTER TABLE users ADD COLUMN daily_words INTEGER NOT NULL DEFAULT 8"
+        )
+    if "daily_review" not in _columns(db, "users"):
+        db.execute(
+            "ALTER TABLE users ADD COLUMN daily_review INTEGER NOT NULL DEFAULT 8"
         )
 
     if "words" not in _tables(db):
@@ -148,6 +156,7 @@ def init_db() -> None:
             user_id INTEGER NOT NULL,
             word_id INTEGER NOT NULL,
             rating TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'new',
             created_at TEXT NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
             FOREIGN KEY (word_id) REFERENCES words(id) ON DELETE CASCADE
@@ -165,6 +174,10 @@ def init_db() -> None:
         );
         """
     )
+    if "kind" not in _columns(db, "review_logs"):
+        db.execute(
+            "ALTER TABLE review_logs ADD COLUMN kind TEXT NOT NULL DEFAULT 'new'"
+        )
 
     admin_n = db.execute(
         "SELECT COUNT(*) AS n FROM users WHERE role = ?", (ROLE_ADMIN,)
@@ -414,7 +427,7 @@ def word_stats(user_id: int) -> dict:
         SELECT COUNT(*) AS n
         FROM words w
         LEFT JOIN progress p ON p.word_id = w.id AND p.user_id = ?
-        WHERE COALESCE(p.status, 'new') != 'mastered'
+        WHERE COALESCE(p.status, 'new') = 'new'
           AND (p.next_review IS NULL OR p.next_review <= ?)
         """,
         (user_id, now_iso()),
@@ -435,19 +448,24 @@ def normalize_spelling(text: str) -> str:
 
 
 def schedule_review(progress, rating: str) -> dict:
-    """认识即掌握；不认识则稍后继续学。"""
+    """新词学会→了解；了解学会→掌握。不认识则回到新词。"""
     streak = (progress["correct_streak"] if progress else 0) or 0
     count = ((progress["review_count"] if progress else 0) or 0) + 1
     now = datetime.now().replace(microsecond=0)
+    prev = (progress["status"] if progress else "new") or "new"
 
     if rating == "again":
-        status = "learning"
+        status = "new"
         streak = 0
         nxt = now + timedelta(minutes=10)
-    else:
+    elif prev == "learning":
         streak += 1
         status = "mastered"
         nxt = now + timedelta(days=3650)
+    else:
+        streak += 1
+        status = "learning"
+        nxt = now
 
     return {
         "status": status,
@@ -471,11 +489,27 @@ def fetch_progress(user_id: int, word_id: int):
 
 
 def due_cards(
-    user_id: int, limit: int = 40, exclude_ids: list[int] | None = None
+    user_id: int,
+    limit: int = 40,
+    exclude_ids: list[int] | None = None,
+    kind: str = KIND_NEW,
 ) -> list[dict]:
     if limit <= 0:
         return []
-    sql = """
+    if kind == KIND_REVIEW:
+        sql = """
+            SELECT w.id, w.term, w.phonetic, w.meaning, w.example, w.notes,
+                   COALESCE(p.status, 'new') AS status,
+                   COALESCE(p.review_count, 0) AS review_count,
+                   COALESCE(p.correct_streak, 0) AS correct_streak,
+                   p.last_reviewed, p.next_review
+            FROM words w
+            JOIN progress p ON p.word_id = w.id AND p.user_id = ?
+            WHERE p.status = 'learning'
+        """
+        params: list = [user_id]
+    else:
+        sql = """
             SELECT w.id, w.term, w.phonetic, w.meaning, w.example, w.notes,
                    COALESCE(p.status, 'new') AS status,
                    COALESCE(p.review_count, 0) AS review_count,
@@ -483,69 +517,99 @@ def due_cards(
                    p.last_reviewed, p.next_review
             FROM words w
             LEFT JOIN progress p ON p.word_id = w.id AND p.user_id = ?
-            WHERE COALESCE(p.status, 'new') != 'mastered'
+            WHERE COALESCE(p.status, 'new') = 'new'
               AND (p.next_review IS NULL OR p.next_review <= ?)
-    """
-    params: list = [user_id, now_iso()]
+        """
+        params = [user_id, now_iso()]
     if exclude_ids:
         placeholders = ",".join("?" * len(exclude_ids))
         sql += f" AND w.id NOT IN ({placeholders})"
         params.extend(exclude_ids)
-    sql += """
+    if kind == KIND_REVIEW:
+        sql += " ORDER BY datetime(p.last_reviewed) ASC LIMIT ?"
+    else:
+        sql += """
             ORDER BY CASE COALESCE(p.status, 'new')
                 WHEN 'new' THEN 0 WHEN 'learning' THEN 1 ELSE 2 END,
                 datetime(p.next_review) ASC
             LIMIT ?
-    """
+        """
     params.append(limit)
     rows = get_db().execute(sql, params).fetchall()
-    return [dict(row) for row in rows]
+    cards = [dict(row) for row in rows]
+    for card in cards:
+        card["kind"] = kind
+    return cards
 
 
-def clamp_daily_words(raw) -> int:
+def clamp_daily_words(raw, default: int = DEFAULT_DAILY_WORDS) -> int:
     try:
         value = int(raw)
     except (TypeError, ValueError):
-        return DEFAULT_DAILY_WORDS
+        return default
     return max(MIN_DAILY_WORDS, min(MAX_DAILY_WORDS, value))
 
 
-def daily_words_of(user) -> int:
+def _user_int(user, key: str, default: int) -> int:
     if not user:
-        return DEFAULT_DAILY_WORDS
+        return default
     try:
-        raw = user["daily_words"]
+        raw = user[key]
     except (KeyError, IndexError, TypeError):
-        raw = DEFAULT_DAILY_WORDS
+        return default
     if raw is None:
-        return DEFAULT_DAILY_WORDS
-    return clamp_daily_words(raw)
+        return default
+    return clamp_daily_words(raw, default)
 
 
-def today_reviewed_word_ids(user_id: int, day: str | None = None) -> list[int]:
+def daily_words_of(user) -> int:
+    return _user_int(user, "daily_words", DEFAULT_DAILY_WORDS)
+
+
+def daily_review_of(user) -> int:
+    return _user_int(user, "daily_review", DEFAULT_DAILY_REVIEW)
+
+
+def today_reviewed_word_ids(
+    user_id: int, kind: str | None = None, day: str | None = None
+) -> list[int]:
     day = day or datetime.now().strftime("%Y-%m-%d")
     start, end = day_bounds(day)
-    rows = get_db().execute(
-        """
+    sql = """
         SELECT DISTINCT word_id FROM review_logs
         WHERE user_id = ? AND created_at >= ? AND created_at <= ?
-        """,
-        (user_id, start, end),
-    ).fetchall()
+    """
+    params: list = [user_id, start, end]
+    if kind:
+        sql += " AND kind = ?"
+        params.append(kind)
+    rows = get_db().execute(sql, params).fetchall()
     return [row["word_id"] for row in rows]
 
 
-def today_task(user_id: int, quota: int | None = None) -> dict:
-    if quota is None:
-        row = get_db().execute(
-            "SELECT daily_words FROM users WHERE id = ?", (user_id,)
-        ).fetchone()
-        quota = daily_words_of(row)
-    else:
-        quota = clamp_daily_words(quota)
-    done = len(today_reviewed_word_ids(user_id))
+def _part(quota: int, done: int) -> dict:
     remaining = max(0, quota - done)
     return {"quota": quota, "done": done, "remaining": remaining}
+
+
+def today_task(user_id: int, user=None) -> dict:
+    if user is None:
+        user = get_db().execute(
+            "SELECT daily_words, daily_review FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    new_q = daily_words_of(user)
+    review_q = daily_review_of(user)
+    new_done = len(today_reviewed_word_ids(user_id, KIND_NEW))
+    review_done = len(today_reviewed_word_ids(user_id, KIND_REVIEW))
+    new_part = _part(new_q, new_done)
+    review_part = _part(review_q, review_done)
+    return {
+        "new": new_part,
+        "review": review_part,
+        "quota": new_q + review_q,
+        "done": new_done + review_done,
+        "remaining": new_part["remaining"] + review_part["remaining"],
+    }
 
 
 def list_words(user_id: int, q: str = "", status: str = ""):
@@ -608,7 +672,7 @@ def child_ids_of(parent_id: int) -> list[int]:
 def children_of(parent_id: int):
     return get_db().execute(
         """
-        SELECT u.id, u.username, u.status, u.created_at, u.daily_words
+        SELECT u.id, u.username, u.status, u.created_at, u.daily_words, u.daily_review
         FROM parent_children pc
         JOIN users u ON u.id = pc.child_id
         WHERE pc.parent_id = ?
@@ -645,6 +709,8 @@ def learning_report(day: str, allowed_ids: list[int] | None = None, detail_id: i
             "learners": 0,
             "again_n": 0,
             "easy_n": 0,
+            "new_n": 0,
+            "review_n": 0,
         }
         return {"summary": empty, "by_user": [], "detail_user": None, "logs": []}
 
@@ -661,7 +727,9 @@ def learning_report(day: str, allowed_ids: list[int] | None = None, detail_id: i
             COUNT(*) AS reviews,
             COUNT(DISTINCT l.user_id) AS learners,
             SUM(CASE WHEN l.rating = 'easy' THEN 1 ELSE 0 END) AS easy_n,
-            SUM(CASE WHEN l.rating != 'easy' THEN 1 ELSE 0 END) AS again_n
+            SUM(CASE WHEN l.rating != 'easy' THEN 1 ELSE 0 END) AS again_n,
+            SUM(CASE WHEN COALESCE(l.kind, 'new') = 'new' THEN 1 ELSE 0 END) AS new_n,
+            SUM(CASE WHEN l.kind = 'review' THEN 1 ELSE 0 END) AS review_n
         FROM review_logs l
         WHERE l.created_at >= ? AND l.created_at <= ?{extra}
         """,
@@ -674,6 +742,8 @@ def learning_report(day: str, allowed_ids: list[int] | None = None, detail_id: i
                COUNT(DISTINCT l.word_id) AS words,
                SUM(CASE WHEN l.rating = 'easy' THEN 1 ELSE 0 END) AS easy_n,
                SUM(CASE WHEN l.rating != 'easy' THEN 1 ELSE 0 END) AS again_n,
+               SUM(CASE WHEN COALESCE(l.kind, 'new') = 'new' THEN 1 ELSE 0 END) AS new_n,
+               SUM(CASE WHEN l.kind = 'review' THEN 1 ELSE 0 END) AS review_n,
                MAX(l.created_at) AS last_at
         FROM review_logs l
         JOIN users u ON u.id = l.user_id
@@ -696,7 +766,7 @@ def learning_report(day: str, allowed_ids: list[int] | None = None, detail_id: i
             if detail_user:
                 logs = db.execute(
                     """
-                    SELECT l.created_at, l.rating, w.term, w.meaning
+                    SELECT l.created_at, l.rating, COALESCE(l.kind, 'new') AS kind, w.term, w.meaning
                     FROM review_logs l
                     JOIN words w ON w.id = l.word_id
                     WHERE l.user_id = ? AND l.created_at >= ? AND l.created_at <= ?
@@ -772,7 +842,7 @@ def home():
         child_stats = []
         for kid in kids:
             ws = word_stats(kid["id"])
-            task = today_task(kid["id"], daily_words_of(kid))
+            task = today_task(kid["id"], kid)
             child_stats.append({"user": kid, "stats": ws, "task": task})
         return render_template(
             "parent_home.html", children=child_stats, day=day
@@ -1072,7 +1142,19 @@ def review():
     user = current_user()
     task = today_task(user["id"])
     done_ids = today_reviewed_word_ids(user["id"])
-    cards = due_cards(user["id"], limit=task["remaining"], exclude_ids=done_ids)
+    new_cards = due_cards(
+        user["id"],
+        limit=task["new"]["remaining"],
+        exclude_ids=done_ids,
+        kind=KIND_NEW,
+    )
+    review_cards = due_cards(
+        user["id"],
+        limit=task["review"]["remaining"],
+        exclude_ids=done_ids,
+        kind=KIND_REVIEW,
+    )
+    cards = new_cards + review_cards
     stats = word_stats(user["id"])
     return render_template("review.html", cards=cards, stats=stats, task=task)
 
@@ -1099,6 +1181,7 @@ def api_review(word_id: int):
         if normalize_spelling(spelling) != normalize_spelling(word["term"]):
             return jsonify({"ok": False, "error": "spelling"}), 400
     progress = fetch_progress(user["id"], word_id)
+    kind = KIND_REVIEW if progress and progress["status"] == "learning" else KIND_NEW
     patch = schedule_review(progress, rating)
     get_db().execute(
         """
@@ -1127,10 +1210,10 @@ def api_review(word_id: int):
     )
     get_db().execute(
         """
-        INSERT INTO review_logs (user_id, word_id, rating, created_at)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO review_logs (user_id, word_id, rating, kind, created_at)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (user["id"], word_id, rating, patch["updated_at"]),
+        (user["id"], word_id, rating, kind, patch["updated_at"]),
     )
     get_db().commit()
     remaining = (
@@ -1140,7 +1223,7 @@ def api_review(word_id: int):
             SELECT COUNT(*) AS n
             FROM words w
             LEFT JOIN progress p ON p.word_id = w.id AND p.user_id = ?
-            WHERE COALESCE(p.status, 'new') != 'mastered'
+            WHERE COALESCE(p.status, 'new') = 'new'
               AND (p.next_review IS NULL OR p.next_review <= ?)
             """,
             (user["id"], now_iso()),
@@ -1407,18 +1490,25 @@ def parent_tasks():
         db = get_db()
         saved = 0
         for child_id in allowed:
-            raw = request.form.get(f"daily_words_{child_id}")
-            if raw is None or str(raw).strip() == "":
+            raw_new = request.form.get(f"daily_words_{child_id}")
+            raw_review = request.form.get(f"daily_review_{child_id}")
+            if (raw_new is None or str(raw_new).strip() == "") and (
+                raw_review is None or str(raw_review).strip() == ""
+            ):
                 continue
-            value = clamp_daily_words(raw)
+            new_value = clamp_daily_words(raw_new, DEFAULT_DAILY_WORDS)
+            review_value = clamp_daily_words(raw_review, DEFAULT_DAILY_REVIEW)
             db.execute(
-                "UPDATE users SET daily_words = ? WHERE id = ? AND role = ?",
-                (value, child_id, ROLE_USER),
+                """
+                UPDATE users SET daily_words = ?, daily_review = ?
+                WHERE id = ? AND role = ?
+                """,
+                (new_value, review_value, child_id, ROLE_USER),
             )
             saved += 1
         db.commit()
         if saved:
-            flash("已保存每日单词量。", "ok")
+            flash("已保存每日学习任务。", "ok")
         else:
             flash("还没有可设置的孩子。", "error")
         return redirect(url_for("parent_tasks"))
@@ -1427,7 +1517,7 @@ def parent_tasks():
         items.append(
             {
                 "user": kid,
-                "task": today_task(kid["id"], daily_words_of(kid)),
+                "task": today_task(kid["id"], kid),
             }
         )
     return render_template("parent_tasks.html", children=items)

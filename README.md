@@ -8,8 +8,8 @@ The UI is in Chinese. This document is in English.
 
 | Role | What they do |
 | --- | --- |
-| **Student** | Study due words each day. Mark **I know it** or **I don’t**. “I know it” requires typing the full spelling; a correct answer marks the word as mastered. |
-| **Parent** | View bound children’s progress, set each child’s daily word quota (1–50, default 10), and switch into a child’s account without a password. |
+| **Student** | Study new words and review words already at the **familiar** stage. **I know it** requires typing the spelling. |
+| **Parent** | View bound children’s progress, set daily **new-word** and **review** quotas, and switch into a child’s account without a password. |
 | **Admin** | Approve or reject sign-ups, maintain the shared word bank, bind children to parents, and view learning reports. Admins do not study words. |
 
 The first registered user becomes admin automatically. Later student and parent accounts stay **pending** until an admin approves them.
@@ -17,10 +17,12 @@ The first registered user becomes admin automatically. Later student and parent 
 ## Study rules
 
 - Students do not have a word-bank browser. They only use **Home**, **Study**, and **Me**.
-- Each day a student sees at most the parent-set quota of not-yet-mastered words.
-- **I know it** + correct spelling → **mastered**. That word leaves the study queue.
-- **I don’t know it** → the word stays unmastered and can appear again later.
-- When the daily quota is done, Study shows “today’s task is complete”.
+- Each day a student has two tasks: **new words** and **review of familiar (了解) words**.
+- Parents set both daily amounts on **Tasks** (0–50 each, default 8).
+- New word + **I know it** + correct spelling → **familiar (了解)**.
+- Familiar word + **I know it** + correct spelling → **mastered (掌握)**.
+- **I don’t know it** → the word returns to the new-word pool.
+- Learning reports split activity into **new-word study** vs **familiar-word review**.
 
 ## Account switching
 
@@ -88,4 +90,4 @@ instance/                   # DB and secret key (not committed)
 | --- | --- |
 | `SECRET_KEY` | Optional env var. Otherwise `instance/secret_key` is generated. |
 | `PORT` | Dev server port, default `5000`. |
-| Daily quota | Stored per student as `users.daily_words`. Parents edit it on **Tasks**. |
+| Daily quota | `users.daily_words` (new) and `users.daily_review` (familiar). Parents edit both on **Tasks**. |

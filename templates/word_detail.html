@@ -5,7 +5,7 @@
 <section class="panel">
   {% if not is_admin %}
     <p class="eyebrow">
-      {% if word.status == 'new' %}新词{% elif word.status == 'mastered' %}已掌握{% endif %}
+      {% if word.status == 'new' %}新词{% elif word.status == 'learning' %}了解{% elif word.status == 'mastered' %}掌握{% endif %}
     </p>
   {% endif %}
   <h1 class="page-title term">{{ word.term }}</h1>

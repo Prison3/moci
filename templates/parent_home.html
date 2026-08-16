@@ -17,8 +17,8 @@
       <li class="user-row">
         <div>
           <strong>{{ item.user.username }}</strong>
-          <p class="muted">今日任务 {{ item.task.done }} / {{ item.task.quota }} 词</p>
-          <p class="muted">已掌握 {{ item.stats.mastered }} · 待学习 {{ item.stats.due }}</p>
+          <p class="muted">新词 {{ item.task.new.done }} / {{ item.task.new.quota }} · 了解 {{ item.task.review.done }} / {{ item.task.review.quota }}</p>
+          <p class="muted">了解 {{ item.stats.learning }} · 掌握 {{ item.stats.mastered }}</p>
         </div>
         <a class="btn btn-ghost btn-compact" href="{{ url_for('parent_learning', date=day, user_id=item.user.id) }}">今日明细</a>
       </li>

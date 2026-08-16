@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}学习 · 墨词{% endblock %}
-{% block subtitle %}点认识后需默写拼写{% endblock %}
+{% block subtitle %}点学会后需默写拼写{% endblock %}
 {% block content %}
 <section class="review-wrap" data-csrf="{{ csrf_token }}">
   {% if cards %}
@@ -13,7 +13,7 @@
                  data-id="{{ w.id }}"
                  data-index="{{ loop.index0 }}">
           <button type="button" class="card-face" aria-label="翻转卡片">
-            <span class="card-kicker">{% if w.status == 'new' %}新词{% else %}学习{% endif %}</span>
+            <span class="card-kicker">{% if w.kind == 'review' %}了解{% else %}新词{% endif %}</span>
             <strong class="card-term">{{ w.term }}</strong>
             {% if w.phonetic %}<span class="phonetic">{{ w.phonetic }}</span>{% endif %}
             <span class="hint">点按查看释义</span>
@@ -29,7 +29,7 @@
 
     <div class="rate-bar" id="rate-bar" hidden>
       <button type="button" class="rate rate-again" data-rating="again">不认识</button>
-      <button type="button" class="rate rate-easy" data-rating="easy">认识</button>
+      <button type="button" class="rate rate-easy" data-rating="easy">学会</button>
     </div>
 
     <form class="spell-panel" id="spell-panel" hidden>
@@ -49,7 +49,7 @@
         <a class="btn btn-primary" href="{{ url_for('home') }}">回到首页</a>
       {% elif task and task.remaining == 0 %}
         <h1>今日任务已完成</h1>
-        <p>今天已学 {{ task.quota }} 个词，明天再来。</p>
+        <p>今天新词 {{ task.new.quota }} 个、了解复习 {{ task.review.quota }} 个都已完成，明天再来。</p>
         <a class="btn btn-primary" href="{{ url_for('home') }}">回到首页</a>
       {% else %}
         <h1>今天没有待学习单词</h1>
@@ -61,7 +61,7 @@
 
   <div class="empty empty-large" id="done-panel" hidden>
     <h1>本轮学习完成</h1>
-    <p>不熟悉的词会很快再出现。</p>
+    <p>还不熟的词会再出现。</p>
     <a class="btn btn-primary" href="{{ url_for('home') }}">回到首页</a>
   </div>
 </section>
