@@ -191,53 +191,228 @@
 
   const cards = Array.from(document.querySelectorAll(".flashcard"));
   const rateBar = document.getElementById("rate-bar");
-  const spellPanel = document.getElementById("spell-panel");
+  const checkPanel = document.getElementById("check-panel");
+  const readStep = document.getElementById("read-step");
+  const spellStep = document.getElementById("spell-step");
+  const micBtn = document.getElementById("mic-btn");
+  const readHint = document.getElementById("read-hint");
+  const readError = document.getElementById("read-error");
   const spellInput = document.getElementById("spell-input");
   const spellError = document.getElementById("spell-error");
-  const spellCancel = document.getElementById("spell-cancel");
+  const checkCancel = document.getElementById("check-cancel");
   const donePanel = document.getElementById("done-panel");
   const deck = document.getElementById("deck");
   const doneCount = document.getElementById("done-count");
   const bar = document.getElementById("progress-bar");
   const csrf = wrap.getAttribute("data-csrf") || "";
+  const needSpeak = wrap.getAttribute("data-know-speak") === "1";
+  const needSpell = wrap.getAttribute("data-know-spell") === "1";
   const total = window.REVIEW_TOTAL || cards.length;
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   let index = 0;
   let finished = 0;
+  let spokenText = "";
+  let recognition = null;
 
   function current() {
     return cards[index];
   }
 
-  function hideSpell() {
+  function normalizeSpoken(text) {
+    return (text || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function spokenMatches(spoken, term) {
+    const want = normalizeSpoken(term);
+    const said = normalizeSpoken(spoken);
+    if (!want || !said) return false;
+    if (said === want) return true;
+    const saidTokens = said.split(" ").filter(Boolean);
+    const wantTokens = want.split(" ").filter(Boolean);
+    for (let i = 0; i <= saidTokens.length - wantTokens.length; i += 1) {
+      if (wantTokens.every((tok, j) => saidTokens[i + j] === tok)) return true;
+    }
+    return false;
+  }
+
+  function stopListening() {
+    if (recognition) {
+      try {
+        recognition.onresult = null;
+        recognition.onerror = null;
+        recognition.onend = null;
+        recognition.stop();
+      } catch (_err) {
+        /* ignore */
+      }
+      recognition = null;
+    }
+    if (micBtn) {
+      micBtn.classList.remove("is-listening");
+      micBtn.disabled = false;
+      micBtn.textContent = "开始朗读";
+    }
+  }
+
+  function hideCheck() {
+    stopListening();
+    spokenText = "";
     const card = current();
-    if (card) card.classList.remove("is-spelling");
-    if (spellPanel) spellPanel.hidden = true;
+    if (card) card.classList.remove("is-checking", "is-spelling");
+    if (checkPanel) checkPanel.hidden = true;
+    if (readStep) readStep.hidden = false;
+    if (spellStep) spellStep.hidden = true;
+    if (readError) readError.hidden = true;
     if (spellError) spellError.hidden = true;
     if (spellInput) {
       spellInput.value = "";
       spellInput.classList.remove("is-wrong");
     }
+    if (readHint) {
+      readHint.hidden = false;
+      readHint.textContent = "点击后对着麦克风读英文。";
+    }
+  }
+
+  function showRead() {
+    const card = current();
+    if (!card || !checkPanel) return;
+    hideCheck();
+    card.classList.add("is-checking");
+    if (rateBar) rateBar.hidden = true;
+    checkPanel.hidden = false;
+    if (window.speechSynthesis) speechSynthesis.cancel();
+    if (!SpeechRecognition) {
+      if (readError) {
+        readError.hidden = false;
+        readError.textContent = "当前浏览器不支持语音识别，请使用 Chrome 或 Safari。";
+      }
+      if (micBtn) micBtn.disabled = true;
+    }
   }
 
   function showSpell() {
     const card = current();
-    if (!card || !spellPanel || !spellInput) return;
-    card.classList.add("is-spelling");
+    if (!card) return;
+    stopListening();
+    card.classList.add("is-checking", "is-spelling");
     if (rateBar) rateBar.hidden = true;
-    spellPanel.hidden = false;
+    if (checkPanel) checkPanel.hidden = false;
+    if (readStep) readStep.hidden = true;
+    if (spellStep) spellStep.hidden = false;
+    const spellLabel = document.getElementById("spell-label");
+    if (spellLabel) {
+      spellLabel.textContent = needSpeak ? "朗读正确，请默写完整单词" : "请默写完整单词";
+    }
     if (spellError) spellError.hidden = true;
-    spellInput.classList.remove("is-wrong");
-    spellInput.value = "";
-    spellInput.focus();
+    if (spellInput) {
+      spellInput.classList.remove("is-wrong");
+      spellInput.value = "";
+      spellInput.focus();
+    }
+  }
+
+  function beginKnowCheck() {
+    if (!needSpeak && !needSpell) {
+      const btn = rateBar && rateBar.querySelector('[data-rating="easy"]');
+      if (btn) btn.disabled = true;
+      submitReview("easy")
+        .catch(() => alert("提交失败，请检查网络后重试。"))
+        .finally(() => {
+          if (btn) btn.disabled = false;
+        });
+      return;
+    }
+    if (needSpeak) {
+      showRead();
+      return;
+    }
+    showSpell();
+  }
+
+  function transcriptFromEvent(event) {
+    const parts = [];
+    for (let i = 0; i < event.results.length; i += 1) {
+      const result = event.results[i];
+      for (let j = 0; j < result.length; j += 1) {
+        parts.push(result[j].transcript || "");
+      }
+    }
+    return parts;
+  }
+
+  function startListening() {
+    const card = current();
+    const term = card ? card.getAttribute("data-term") || "" : "";
+    if (!card || !term || !SpeechRecognition) return;
+    stopListening();
+    if (window.speechSynthesis) speechSynthesis.cancel();
+    if (readError) readError.hidden = true;
+    recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 5;
+    recognition.continuous = false;
+    if (micBtn) {
+      micBtn.classList.add("is-listening");
+      micBtn.textContent = "正在听…";
+    }
+    recognition.onresult = (event) => {
+      const transcripts = transcriptFromEvent(event);
+      const hit = transcripts.find((text) => spokenMatches(text, term));
+      if (hit) {
+        spokenText = hit;
+        if (needSpell) {
+          showSpell();
+        } else {
+          submitReview("easy", undefined, spokenText).catch(() => {
+            alert("提交失败，请检查网络后重试。");
+          });
+        }
+        return;
+      }
+      if (readError) {
+        readError.hidden = false;
+        readError.textContent = "没听清或读得不对，请再试一次。";
+      }
+    };
+    recognition.onerror = () => {
+      if (readError) {
+        readError.hidden = false;
+        readError.textContent = "没听清或读得不对，请再试一次。";
+      }
+    };
+    recognition.onend = () => {
+      if (micBtn) {
+        micBtn.classList.remove("is-listening");
+        micBtn.textContent = spokenText ? "朗读正确" : "开始朗读";
+        micBtn.disabled = false;
+      }
+      recognition = null;
+    };
+    try {
+      recognition.start();
+    } catch (_err) {
+      if (readError) {
+        readError.hidden = false;
+        readError.textContent = "无法开始录音，请检查麦克风权限。";
+      }
+      stopListening();
+    }
   }
 
   function show(i) {
-    cards.forEach((c) => c.classList.remove("is-current", "is-spelling"));
-    hideSpell();
+    cards.forEach((c) => c.classList.remove("is-current", "is-checking", "is-spelling"));
+    hideCheck();
     if (!cards[i]) {
       if (deck) deck.hidden = true;
       if (rateBar) rateBar.hidden = true;
-      if (spellPanel) spellPanel.hidden = true;
+      if (checkPanel) checkPanel.hidden = true;
       if (donePanel) donePanel.hidden = false;
       const label = document.querySelector(".progress-label");
       if (label) label.hidden = true;
@@ -252,12 +427,13 @@
     if (bar && total) bar.style.width = `${Math.round((finished / total) * 100)}%`;
   }
 
-  async function submitReview(rating, spelling) {
+  async function submitReview(rating, spelling, spoken) {
     const card = current();
     if (!card) return false;
     const id = card.getAttribute("data-id");
     const body = { rating };
     if (spelling !== undefined) body.spelling = spelling;
+    if (spoken !== undefined) body.spoken = spoken;
     const res = await fetch(`/api/review/${id}`, {
       method: "POST",
       headers: {
@@ -269,6 +445,7 @@
     if (res.status === 400) {
       const data = await res.json().catch(() => ({}));
       if (data.error === "spelling") return "spelling";
+      if (data.error === "spoken") return "spoken";
     }
     if (!res.ok) throw new Error("review failed");
     finished += 1;
@@ -284,7 +461,7 @@
       if (!btn) return;
       const rating = btn.getAttribute("data-rating");
       if (rating === "easy") {
-        showSpell();
+        beginKnowCheck();
         return;
       }
       btn.disabled = true;
@@ -298,20 +475,55 @@
     });
   }
 
-  if (spellPanel) {
-    spellPanel.addEventListener("submit", async (event) => {
+  if (micBtn) {
+    micBtn.addEventListener("click", () => {
+      if (micBtn.classList.contains("is-listening")) {
+        stopListening();
+        return;
+      }
+      startListening();
+    });
+  }
+
+  if (checkPanel) {
+    checkPanel.addEventListener("submit", async (event) => {
       event.preventDefault();
       const spelling = (spellInput && spellInput.value) || "";
-      const submitBtn = spellPanel.querySelector('button[type="submit"]');
+      const submitBtn = checkPanel.querySelector('button[type="submit"]');
       if (submitBtn) submitBtn.disabled = true;
       try {
-        const result = await submitReview("easy", spelling);
+        if (needSpeak && !spokenText) {
+          if (readError) {
+            readError.hidden = false;
+            readError.textContent = "请先正确朗读这个单词。";
+          }
+          if (readStep) readStep.hidden = false;
+          if (spellStep) spellStep.hidden = true;
+          const card = current();
+          if (card) card.classList.remove("is-spelling");
+          return;
+        }
+        const result = await submitReview(
+          "easy",
+          needSpell ? spelling : undefined,
+          needSpeak ? spokenText : undefined
+        );
         if (result === "spelling") {
           if (spellError) spellError.hidden = false;
           if (spellInput) {
             spellInput.classList.add("is-wrong");
             spellInput.focus();
             spellInput.select();
+          }
+        } else if (result === "spoken") {
+          spokenText = "";
+          if (readStep) readStep.hidden = false;
+          if (spellStep) spellStep.hidden = true;
+          const card = current();
+          if (card) card.classList.remove("is-spelling");
+          if (readError) {
+            readError.hidden = false;
+            readError.textContent = "请先正确朗读这个单词。";
           }
         }
       } catch (_err) {
@@ -322,13 +534,11 @@
     });
   }
 
-  if (spellCancel) {
-    spellCancel.addEventListener("click", () => {
-      hideSpell();
+  if (checkCancel) {
+    checkCancel.addEventListener("click", () => {
+      hideCheck();
       const card = current();
-      if (card && rateBar) {
-        rateBar.hidden = false;
-      }
+      if (card && rateBar) rateBar.hidden = false;
     });
   }
 

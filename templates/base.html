@@ -44,7 +44,7 @@
     </main>
 
     {% if current_user %}
-    <nav class="tabbar {% if is_learner or is_parent %}tabs-3{% endif %}" aria-label="主导航">
+    <nav class="tabbar {% if is_learner %}tabs-3{% elif is_parent %}tabs-2{% endif %}" aria-label="主导航">
       <a class="tab {% if active_page == 'home' %}is-active{% endif %}" href="{{ url_for('home') }}">
         <span class="tab-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z"/></svg>
@@ -71,12 +71,6 @@
         学情
       </a>
       {% elif is_parent %}
-      <a class="tab {% if active_page == 'parent_tasks' %}is-active{% endif %}" href="{{ url_for('parent_tasks') }}">
-        <span class="tab-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24"><path d="M7 3h10a2 2 0 0 1 2 2v16H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm2 5h6v2H9V8Zm0 4h6v2H9v-2Zm0 4h4v2H9v-2Z"/></svg>
-        </span>
-        任务
-      </a>
       <a class="tab {% if active_page == 'profile' %}is-active{% endif %}" href="{{ url_for('profile') }}">
         <span class="tab-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4 0-8 2-8 5v1h16v-1c0-3-4-5-8-5Z"/></svg>

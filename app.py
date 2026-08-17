@@ -102,6 +102,8 @@ def init_db() -> None:
             status TEXT NOT NULL DEFAULT 'pending',
             daily_words INTEGER NOT NULL DEFAULT 8,
             daily_review INTEGER NOT NULL DEFAULT 8,
+            know_speak INTEGER NOT NULL DEFAULT 1,
+            know_spell INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         )
         """
@@ -129,6 +131,14 @@ def init_db() -> None:
     if "daily_review" not in _columns(db, "users"):
         db.execute(
             "ALTER TABLE users ADD COLUMN daily_review INTEGER NOT NULL DEFAULT 8"
+        )
+    if "know_speak" not in _columns(db, "users"):
+        db.execute(
+            "ALTER TABLE users ADD COLUMN know_speak INTEGER NOT NULL DEFAULT 1"
+        )
+    if "know_spell" not in _columns(db, "users"):
+        db.execute(
+            "ALTER TABLE users ADD COLUMN know_spell INTEGER NOT NULL DEFAULT 1"
         )
 
     if "words" not in _tables(db):
@@ -470,6 +480,29 @@ def normalize_spelling(text: str) -> str:
     return value
 
 
+def normalize_spoken(text: str) -> str:
+    value = (text or "").strip().lower()
+    value = re.sub(r"[^a-z0-9\s]", " ", value)
+    value = re.sub(r"\s+", " ", value)
+    return value.strip()
+
+
+def spoken_matches(spoken: str, term: str) -> bool:
+    want = normalize_spoken(term)
+    said = normalize_spoken(spoken)
+    if not want or not said:
+        return False
+    if said == want:
+        return True
+    said_tokens = said.split()
+    want_tokens = want.split()
+    n = len(want_tokens)
+    for i in range(len(said_tokens) - n + 1):
+        if said_tokens[i : i + n] == want_tokens:
+            return True
+    return False
+
+
 def schedule_review(progress, rating: str) -> dict:
     """新词学会→复习；复习学会→掌握。不认识则回到新词。"""
     streak = (progress["correct_streak"] if progress else 0) or 0
@@ -591,6 +624,12 @@ def daily_words_of(user) -> int:
 
 def daily_review_of(user) -> int:
     return _user_int(user, "daily_review", DEFAULT_DAILY_REVIEW)
+
+
+def know_checks_of(user) -> dict:
+    speak = _user_int(user, "know_speak", 1) == 1
+    spell = _user_int(user, "know_spell", 1) == 1
+    return {"speak": speak, "spell": spell}
 
 
 def quotas_for(user_ids: list[int] | None) -> tuple[int | None, int | None]:
@@ -960,7 +999,8 @@ def child_ids_of(parent_id: int) -> list[int]:
 def children_of(parent_id: int):
     return get_db().execute(
         """
-        SELECT u.id, u.username, u.status, u.created_at, u.daily_words, u.daily_review
+        SELECT u.id, u.username, u.status, u.created_at, u.daily_words, u.daily_review,
+               u.know_speak, u.know_spell
         FROM parent_children pc
         JOIN users u ON u.id = pc.child_id
         WHERE pc.parent_id = ?
@@ -1482,7 +1522,10 @@ def review():
     )
     cards = new_cards + review_cards
     stats = word_stats(user["id"])
-    return render_template("review.html", cards=cards, stats=stats, task=task)
+    checks = know_checks_of(user)
+    return render_template(
+        "review.html", cards=cards, stats=stats, task=task, **checks
+    )
 
 
 @app.route("/api/review/<int:word_id>", methods=["POST"])
@@ -1501,11 +1544,17 @@ def api_review(word_id: int):
     if not word:
         return jsonify({"ok": False, "error": "not found"}), 404
     if rating == "easy":
-        spelling = payload.get("spelling")
-        if not isinstance(spelling, str) or not spelling.strip():
-            return jsonify({"ok": False, "error": "spelling"}), 400
-        if normalize_spelling(spelling) != normalize_spelling(word["term"]):
-            return jsonify({"ok": False, "error": "spelling"}), 400
+        checks = know_checks_of(user)
+        if checks["speak"]:
+            spoken = payload.get("spoken")
+            if not isinstance(spoken, str) or not spoken_matches(spoken, word["term"]):
+                return jsonify({"ok": False, "error": "spoken"}), 400
+        if checks["spell"]:
+            spelling = payload.get("spelling")
+            if not isinstance(spelling, str) or not spelling.strip():
+                return jsonify({"ok": False, "error": "spelling"}), 400
+            if normalize_spelling(spelling) != normalize_spelling(word["term"]):
+                return jsonify({"ok": False, "error": "spelling"}), 400
     progress = fetch_progress(user["id"], word_id)
     kind = KIND_REVIEW if progress and progress["status"] == "learning" else KIND_NEW
     patch = schedule_review(progress, rating)
@@ -1567,16 +1616,82 @@ def api_study_day():
     return jsonify({"ok": True, "date": day, "words": words})
 
 
-@app.route("/me")
+@app.route("/me", methods=["GET", "POST"])
 @login_required
 def profile():
     user = current_user()
     stats = word_stats(user["id"]) if is_learner(user) else None
     kids = children_of(user["id"]) if is_parent(user) else []
     parents = parents_of(user["id"]) if is_learner(user) else []
+    task_children = []
+    selected = None
+    if is_parent(user):
+        allowed = [kid["id"] for kid in kids]
+        raw = (request.values.get("user_id") or "").strip()
+        detail_id = int(raw) if raw.isdigit() else None
+        if allowed:
+            if detail_id not in allowed:
+                detail_id = allowed[0]
+            if request.method == "GET" and str(request.args.get("user_id") or "") != str(
+                detail_id
+            ):
+                return redirect(url_for("profile", user_id=detail_id))
+        if request.method == "POST":
+            if not validate_csrf():
+                flash("请求已过期，请重试。", "error")
+                return redirect(url_for("profile", user_id=detail_id))
+            if not detail_id:
+                flash("还没有可设置的孩子。", "error")
+                return redirect(url_for("profile"))
+            raw_new = request.form.get(f"daily_words_{detail_id}")
+            raw_review = request.form.get(f"daily_review_{detail_id}")
+            new_value = clamp_daily_words(raw_new, DEFAULT_DAILY_WORDS)
+            review_value = clamp_daily_words(raw_review, DEFAULT_DAILY_REVIEW)
+            know_speak = 1 if request.form.get(f"know_speak_{detail_id}") == "1" else 0
+            know_spell = 1 if request.form.get(f"know_spell_{detail_id}") == "1" else 0
+            get_db().execute(
+                """
+                UPDATE users SET daily_words = ?, daily_review = ?,
+                       know_speak = ?, know_spell = ?
+                WHERE id = ? AND role = ?
+                """,
+                (
+                    new_value,
+                    review_value,
+                    know_speak,
+                    know_spell,
+                    detail_id,
+                    ROLE_USER,
+                ),
+            )
+            get_db().commit()
+            flash("已保存学习设置。", "ok")
+            return redirect(url_for("profile", user_id=detail_id))
+        for kid in kids:
+            item = {"user": kid, "task": today_task(kid["id"], kid)}
+            task_children.append(item)
+            if detail_id and kid["id"] == detail_id:
+                selected = item
+    elif request.method == "POST":
+        return redirect(url_for("profile"))
     return render_template(
-        "profile.html", stats=stats, children=kids, parents=parents
+        "profile.html",
+        stats=stats,
+        children=kids,
+        parents=parents,
+        task_children=task_children,
+        selected=selected,
     )
+
+
+@app.route("/tasks")
+@parent_required
+def parent_tasks():
+    kwargs = {}
+    raw = (request.args.get("user_id") or "").strip()
+    if raw.isdigit():
+        kwargs["user_id"] = int(raw)
+    return redirect(url_for("profile", **kwargs))
 
 
 @app.route("/me/switch", methods=["POST"])
@@ -1796,51 +1911,6 @@ def admin_learning():
         empty_text="这一天还没有学生的学习记录。",
         **report,
     )
-
-
-@app.route("/tasks", methods=["GET", "POST"])
-@parent_required
-def parent_tasks():
-    user = current_user()
-    allowed = set(child_ids_of(user["id"]))
-    if request.method == "POST":
-        if not validate_csrf():
-            flash("请求已过期，请重试。", "error")
-            return redirect(url_for("parent_tasks"))
-        db = get_db()
-        saved = 0
-        for child_id in allowed:
-            raw_new = request.form.get(f"daily_words_{child_id}")
-            raw_review = request.form.get(f"daily_review_{child_id}")
-            if (raw_new is None or str(raw_new).strip() == "") and (
-                raw_review is None or str(raw_review).strip() == ""
-            ):
-                continue
-            new_value = clamp_daily_words(raw_new, DEFAULT_DAILY_WORDS)
-            review_value = clamp_daily_words(raw_review, DEFAULT_DAILY_REVIEW)
-            db.execute(
-                """
-                UPDATE users SET daily_words = ?, daily_review = ?
-                WHERE id = ? AND role = ?
-                """,
-                (new_value, review_value, child_id, ROLE_USER),
-            )
-            saved += 1
-        db.commit()
-        if saved:
-            flash("已保存每日学习任务。", "ok")
-        else:
-            flash("还没有可设置的孩子。", "error")
-        return redirect(url_for("parent_tasks"))
-    items = []
-    for kid in children_of(user["id"]):
-        items.append(
-            {
-                "user": kid,
-                "task": today_task(kid["id"], kid),
-            }
-        )
-    return render_template("parent_tasks.html", children=items)
 
 
 def _parse_word_form(require_meaning: bool = True) -> dict:

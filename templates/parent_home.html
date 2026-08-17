@@ -1,13 +1,9 @@
 {% extends "base.html" %}
 {% block title %}孩子学情 · 墨词{% endblock %}
-{% block subtitle %}查看孩子的学习情况{% endblock %}
+{% block subtitle %}{% endblock %}
 {% block content %}
 {% if children %}
   <section class="panel" aria-label="孩子信息">
-    <div class="panel-head">
-      <h2>孩子 {{ children|length }} 人</h2>
-      <a href="{{ url_for('parent_tasks') }}">任务设置</a>
-    </div>
     <ul class="child-grid{% if children|length > 1 %} has-many{% endif %}">
       {% for item in children %}
         {% set selected = detail_user and detail_user.id == item.user.id %}

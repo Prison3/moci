@@ -3,14 +3,17 @@
 {% block subtitle %}账号{% endblock %}
 {% block content %}
 <section class="panel profile-card">
-  <p class="eyebrow">当前账号</p>
-  <h1>{{ current_user.username }}</h1>
-  <p>
-    <span class="badge {% if is_admin %}badge-mastered{% elif is_parent %}badge-learning{% else %}badge-mastered{% endif %}">
-      {% if is_admin %}管理员{% elif is_parent %}家长{% else %}学生{% endif %}
-    </span>
-  </p>
-  <p class="muted">注册于 {{ current_user.created_at }}</p>
+  <div class="profile-head">
+    <div>
+      <h1>{{ current_user.username }}</h1>
+      <p>
+        <span class="badge {% if is_admin %}badge-mastered{% elif is_parent %}badge-learning{% else %}badge-mastered{% endif %}">
+          {% if is_admin %}管理员{% elif is_parent %}家长{% else %}学生{% endif %}
+        </span>
+      </p>
+    </div>
+    <a class="btn btn-ghost btn-compact" href="{{ url_for('logout') }}">退出登录</a>
+  </div>
 </section>
 
 {% if is_learner and stats %}
@@ -21,52 +24,84 @@
 </section>
 {% endif %}
 
+{% if is_admin %}
 <section class="panel">
-  {% if is_admin %}
     <h2>管理</h2>
     <p class="muted">管理员负责审核注册、维护词库，并把学生绑定给家长。</p>
     <a class="btn btn-primary btn-block" href="{{ url_for('admin_users') }}">管理用户</a>
     <a class="btn btn-ghost btn-block" href="{{ url_for('admin_learning') }}">学习情况</a>
     <a class="btn btn-ghost btn-block" href="{{ url_for('word_new') }}">录入单词</a>
-  {% elif is_parent %}
-    <h2>家长</h2>
-    <p class="muted">你可以查看已绑定孩子的学习情况，不能替孩子背单词。</p>
-    {% if children %}
-      <p class="muted">孩子：{% for kid in children %}{{ kid.username }}{% if not loop.last %}、{% endif %}{% endfor %}</p>
+</section>
+{% elif is_parent %}
+  {% if task_children %}
+    <section class="panel" aria-label="孩子列表">
+      <ul class="child-grid{% if task_children|length > 1 %} has-many{% endif %}">
+        {% for item in task_children %}
+          {% set current = selected and selected.user.id == item.user.id %}
+          <li>
+            <div class="child-card is-compact{% if current %} is-selected{% endif %}">
+              <a class="child-card-main"
+                 href="{{ url_for('profile', user_id=item.user.id) }}"
+                 aria-pressed="{{ 'true' if current else 'false' }}">
+                <strong class="child-name">{{ item.user.username }}</strong>
+                <p class="muted">今日 {{ item.task.done }}/{{ item.task.quota }}</p>
+              </a>
+              {% if item.user.status == 'approved' %}
+                <form class="child-switch" method="post" action="{{ url_for('switch_account') }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="target_id" value="{{ item.user.id }}">
+                  <button class="btn btn-primary btn-compact" type="submit">切换</button>
+                </form>
+              {% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% if selected %}
+      <form method="post" class="form" action="{{ url_for('profile') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="user_id" value="{{ selected.user.id }}">
+        <section class="panel">
+          <label>
+            <span>每日新词（0–50）</span>
+            <input type="number" name="daily_words_{{ selected.user.id }}" value="{{ selected.task.new.quota }}" min="0" max="50" required inputmode="numeric">
+          </label>
+          <label>
+            <span>每日复习（0–50）</span>
+            <input type="number" name="daily_review_{{ selected.user.id }}" value="{{ selected.task.review.quota }}" min="0" max="50" required inputmode="numeric">
+          </label>
+          <fieldset class="know-checks">
+            <legend>判断「学会」需要</legend>
+            <label class="check-line">
+              <input type="checkbox" name="know_speak_{{ selected.user.id }}" value="1"{% if selected.user.know_speak %} checked{% endif %}>
+              正确朗读
+            </label>
+            <label class="check-line">
+              <input type="checkbox" name="know_spell_{{ selected.user.id }}" value="1"{% if selected.user.know_spell %} checked{% endif %}>
+              正确默写
+            </label>
+          </fieldset>
+          <p class="muted">今日新词 {{ selected.task.new.done }} / {{ selected.task.new.quota }} · 复习 {{ selected.task.review.done }} / {{ selected.task.review.quota }}</p>
+          <button class="btn btn-primary btn-block" type="submit">保存设置</button>
+        </section>
+      </form>
     {% endif %}
-    <a class="btn btn-primary btn-block" href="{{ url_for('home') }}">查看学情</a>
-    <a class="btn btn-ghost btn-block" href="{{ url_for('parent_tasks') }}">学习任务</a>
   {% else %}
+    <div class="empty">
+      <p>还没有绑定孩子。请联系管理员，把学生账号绑到你的家长账号下。</p>
+    </div>
+  {% endif %}
+{% elif is_learner %}
+<section class="panel">
     <h2>关于角色</h2>
     <p class="muted">你是学生，通过「学习」背单词。家长账号由管理员绑定后，可以查看你的学习情况。</p>
-  {% endif %}
 </section>
+{% endif %}
 
-{% if is_parent or is_learner %}
+{% if is_learner %}
 <section class="panel">
   <h2>切换账号</h2>
-  {% if is_parent %}
-    <p class="muted">可以直接切换到孩子账号，不用再输入密码。</p>
-    {% if children %}
-      {% for kid in children %}
-        {% if kid.status == 'approved' %}
-          <form class="switch-form" method="post" action="{{ url_for('switch_account') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="target_id" value="{{ kid.id }}">
-            <div class="switch-row">
-              <div>
-                <strong>{{ kid.username }}</strong>
-                <p class="muted">学生</p>
-              </div>
-              <button class="btn btn-primary btn-compact" type="submit">切换</button>
-            </div>
-          </form>
-        {% endif %}
-      {% endfor %}
-    {% else %}
-      <p class="muted">还没有绑定孩子。</p>
-    {% endif %}
-  {% else %}
     <p class="muted">切换到家长时，需要输入该家长的登录密码。</p>
     {% if parents %}
       {% for p in parents %}
@@ -86,11 +121,6 @@
     {% else %}
       <p class="muted">还没有绑定家长。</p>
     {% endif %}
-  {% endif %}
 </section>
 {% endif %}
-
-<section class="panel">
-  <a class="btn btn-ghost btn-block" href="{{ url_for('logout') }}">退出登录</a>
-</section>
 {% endblock %}

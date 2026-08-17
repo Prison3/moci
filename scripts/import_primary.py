@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""导入小学英语词汇（课标二级 + 数词/星期/月份 + 教材常用词），并补全短语与例句。"""
+"""导入小学英语词汇（课标二级 + 上海牛津补充词），并补全短语与例句。"""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from data.primary_school_words import WORDS  # noqa: E402
+from data.shanghai_oxford_extra import EXTRA_WORDS  # noqa: E402
 from data.word_usage import usage_for  # noqa: E402
 
 DB_PATH = ROOT / "instance" / "words.db"
@@ -64,7 +65,7 @@ def main() -> None:
     inserted = 0
     skipped = 0
     filled = 0
-    for term, phonetic, meaning, notes in WORDS:
+    for term, phonetic, meaning, notes in list(WORDS) + list(EXTRA_WORDS):
         term = term.strip()
         meaning = meaning.strip()
         notes = notes.strip()

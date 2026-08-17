@@ -147,6 +147,10 @@ textarea {
   margin: 4px 0 0;
 }
 
+.topbar-sub:empty {
+  display: none;
+}
+
 .main {
   padding: 8px 16px 24px;
 }
@@ -185,6 +189,21 @@ textarea {
 .hero h1 em {
   font-style: normal;
   color: var(--cinnabar);
+}
+
+.profile-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.profile-head h1 {
+  margin: 0 0 8px;
+}
+
+.profile-head p {
+  margin: 0;
 }
 
 .hero-actions,
@@ -245,6 +264,10 @@ a.stat {
 .panel-head h2 {
   margin: 0;
   font-size: 1.05rem;
+}
+
+.panel-head > a:only-child {
+  margin-left: auto;
 }
 
 .cal-nav {
@@ -658,6 +681,10 @@ textarea:focus {
   grid-template-columns: repeat(3, 1fr);
 }
 
+.tabbar.tabs-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
 .bind-form {
   display: flex;
   gap: 6px;
@@ -671,13 +698,54 @@ textarea:focus {
   min-height: 40px;
 }
 
-.task-card h2 {
-  margin: 0;
-  font-size: 1.05rem;
+.child-card.is-compact {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  padding: 10px 12px;
+  gap: 8px;
+  cursor: default;
+  text-decoration: none;
 }
 
-.task-card label {
-  margin-top: 12px;
+.child-card-main {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.child-switch {
+  margin: 0;
+}
+
+.know-checks {
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.know-checks legend {
+  padding: 0 6px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.check-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.check-line input[type="checkbox"] {
+  width: 20px;
+  min-height: 20px;
+  padding: 0;
+  flex: none;
+  accent-color: var(--pine);
 }
 
 .switch-form {
@@ -917,15 +985,37 @@ textarea:focus {
   border-top: 1px dashed var(--line);
 }
 
+.flashcard.is-checking .card-speak,
+.flashcard.is-checking .speak-btn {
+  pointer-events: none;
+  opacity: 0.35;
+}
+
 .flashcard.is-spelling .card-term,
 .flashcard.is-spelling .phonetic,
-.flashcard.is-spelling .card-speak,
-.flashcard.is-spelling .speak-btn {
+.flashcard.is-checking.is-spelling .card-speak,
+.flashcard.is-checking.is-spelling .speak-btn {
   visibility: hidden;
 }
 
 .flashcard.is-spelling .card-face {
   pointer-events: none;
+}
+
+.check-title {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+
+.check-hint {
+  margin: 0;
+  font-size: 13px;
+}
+
+#mic-btn.is-listening {
+  background: var(--cinnabar);
+  color: #fff;
+  border-color: var(--cinnabar);
 }
 
 .spell-panel {
