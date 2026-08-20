@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
 
+import hashlib
+
 from flask import (
     Flask,
     flash,
@@ -23,6 +25,13 @@ from flask import (
     url_for,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
+
+# 部分旧 Python/OpenSSL 构建（如 macOS 自带 3.9）没有 hashlib.scrypt，回退 pbkdf2。
+_HASH_METHOD = "scrypt" if hasattr(hashlib, "scrypt") else "pbkdf2:sha256"
+
+
+def make_password_hash(password: str) -> str:
+    return generate_password_hash(password, method=_HASH_METHOD)
 
 BASE_DIR = Path(__file__).resolve().parent
 INSTANCE_DIR = BASE_DIR / "instance"
@@ -999,7 +1008,7 @@ def child_ids_of(parent_id: int) -> list[int]:
 def children_of(parent_id: int):
     return get_db().execute(
         """
-        SELECT u.id, u.username, u.status, u.created_at, u.daily_words, u.daily_review,
+        SELECT u.id, u.username, u.role, u.status, u.created_at, u.daily_words, u.daily_review,
                u.know_speak, u.know_spell
         FROM parent_children pc
         JOIN users u ON u.id = pc.child_id
@@ -1253,7 +1262,7 @@ def register():
                     """,
                     (
                         username,
-                        generate_password_hash(password),
+                        make_password_hash(password),
                         role,
                         status,
                         now_iso(),
@@ -1941,6 +1950,815 @@ def _parse_word_form(require_meaning: bool = True) -> dict:
     elif len(example) > 400:
         data["error"] = "例句过长。"
     return data
+
+
+# ---------------------------------------------------------------------------
+# /api/v1 — Android 原生客户端使用的 JSON API
+#
+# 认证复用 Flask session cookie（客户端需持久化名为 session 的 cookie）。
+# 除登录/注册外的写操作需在请求头携带 X-CSRF-Token；
+# 登录、切换账号、me 的响应里会下发当前会话的 csrf_token。
+# 响应统一为 {"ok": true, ...} 或 {"ok": false, "error": 代码, "message": 文案}。
+# ---------------------------------------------------------------------------
+
+
+def api_error(message: str, status: int = 400, code: str = "error"):
+    return jsonify({"ok": False, "error": code, "message": message}), status
+
+
+def _public_user(user) -> dict:
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "role": user["role"],
+        "status": user["status"],
+        "daily_words": daily_words_of(user),
+        "daily_review": daily_review_of(user),
+        "know_speak": _user_int(user, "know_speak", 1),
+        "know_spell": _user_int(user, "know_spell", 1),
+        "created_at": user["created_at"],
+    }
+
+
+def _word_payload(row) -> dict:
+    return {
+        "id": row["id"],
+        "term": row["term"],
+        "phonetic": row["phonetic"] or "",
+        "meaning": row["meaning"] or "",
+        "phrase": row["phrase"] or "",
+        "example": row["example"] or "",
+        "notes": row["notes"] or "",
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def _api_current_user():
+    """返回 (user, error_response)；未登录或未审核时 user 为 None。"""
+    if not session.get("user_id"):
+        return None, api_error("请先登录。", 401, "unauthorized")
+    user = current_user()
+    if not user:
+        session.clear()
+        return None, api_error("请先登录。", 401, "unauthorized")
+    if not is_approved(user):
+        if user["status"] == STATUS_REJECTED:
+            return None, api_error("账号未通过审核，请联系管理员。", 403, "not_approved")
+        return None, api_error("账号正在等待管理员同意，通过后才能登录。", 403, "not_approved")
+    return user, None
+
+
+def api_required(view=None, *, roles: set[str] | None = None):
+    def deco(fn):
+        @wraps(fn)
+        def wrapped(*args, **kwargs):
+            user, err = _api_current_user()
+            if err:
+                return err
+            if roles and user["role"] not in roles:
+                return api_error("没有权限执行此操作。", 403, "forbidden")
+            return fn(*args, **kwargs)
+
+        return wrapped
+
+    return deco(view) if view is not None else deco
+
+
+def api_csrf():
+    if not validate_csrf():
+        return api_error("会话已过期，请重新登录后再试。", 403, "csrf")
+    return None
+
+
+@app.route("/api/v1/auth/register", methods=["POST"])
+def api_register():
+    if session.get("user_id"):
+        return api_error("当前已登录，请先退出后再注册。")
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    confirm = data.get("confirm") or ""
+    chosen_role = (data.get("role") or ROLE_USER).strip()
+    if chosen_role not in {ROLE_USER, ROLE_PARENT}:
+        chosen_role = ROLE_USER
+    if not USERNAME_RE.match(username):
+        return api_error("用户名需为 2–20 位字母、数字、下划线或中文。")
+    if len(password) < 6:
+        return api_error("密码至少 6 位。")
+    if password != confirm:
+        return api_error("两次输入的密码不一致。")
+    db = get_db()
+    exists = db.execute(
+        "SELECT id FROM users WHERE username = ?", (username,)
+    ).fetchone()
+    if exists:
+        return api_error("该用户名已被占用。")
+    user_n = db.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+    role = ROLE_ADMIN if user_n == 0 else chosen_role
+    status = STATUS_APPROVED if role == ROLE_ADMIN else STATUS_PENDING
+    db.execute(
+        """
+        INSERT INTO users (username, password_hash, role, status, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (username, make_password_hash(password), role, status, now_iso()),
+    )
+    db.commit()
+    if role == ROLE_ADMIN:
+        user = db.execute(
+            "SELECT * FROM users WHERE username = ?", (username,)
+        ).fetchone()
+        session.clear()
+        session["user_id"] = user["id"]
+        session["_csrf"] = secrets.token_hex(16)
+        return jsonify(
+            {
+                "ok": True,
+                "auto_login": True,
+                "user": _public_user(user),
+                "csrf_token": session["_csrf"],
+                "message": "注册成功。你是第一位用户，已设为管理员。",
+            }
+        )
+    return jsonify(
+        {
+            "ok": True,
+            "auto_login": False,
+            "message": "注册已提交，请等待管理员同意后再登录。",
+        }
+    )
+
+
+@app.route("/api/v1/auth/login", methods=["POST"])
+def api_login():
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    user = (
+        get_db()
+        .execute("SELECT * FROM users WHERE username = ?", (username,))
+        .fetchone()
+    )
+    if not user or not check_password_hash(user["password_hash"], password):
+        return api_error("用户名或密码不正确。")
+    if not is_approved(user):
+        if user["status"] == STATUS_REJECTED:
+            return api_error("账号未通过审核，请联系管理员。", 403, "not_approved")
+        return api_error("账号正在等待管理员同意，通过后才能登录。", 403, "not_approved")
+    session.clear()
+    session["user_id"] = user["id"]
+    session["_csrf"] = secrets.token_hex(16)
+    return jsonify(
+        {"ok": True, "user": _public_user(user), "csrf_token": session["_csrf"]}
+    )
+
+
+@app.route("/api/v1/auth/logout", methods=["POST"])
+def api_logout():
+    session.clear()
+    return jsonify({"ok": True})
+
+
+@app.get("/api/v1/auth/me")
+def api_me():
+    user, err = _api_current_user()
+    if err:
+        return err
+    return jsonify(
+        {"ok": True, "user": _public_user(user), "csrf_token": csrf_token()}
+    )
+
+
+@app.get("/api/v1/home")
+@api_required
+def api_home():
+    user = current_user()
+    db = get_db()
+    if is_admin(user):
+        pending = db.execute(
+            """
+            SELECT id, username, role, created_at FROM users
+            WHERE role != ? AND status = ?
+            ORDER BY id ASC
+            """,
+            (ROLE_ADMIN, STATUS_PENDING),
+        ).fetchall()
+        recent = db.execute(
+            "SELECT * FROM words ORDER BY datetime(created_at) DESC LIMIT 6"
+        ).fetchall()
+        return jsonify(
+            {
+                "ok": True,
+                "user": _public_user(user),
+                "stats": {
+                    "total": db.execute("SELECT COUNT(*) AS n FROM words").fetchone()[
+                        "n"
+                    ]
+                },
+                "user_count": db.execute(
+                    "SELECT COUNT(*) AS n FROM users WHERE role = ?", (ROLE_USER,)
+                ).fetchone()["n"],
+                "parent_count": db.execute(
+                    "SELECT COUNT(*) AS n FROM users WHERE role = ?", (ROLE_PARENT,)
+                ).fetchone()["n"],
+                "pending_count": len(pending),
+                "pending": [dict(r) for r in pending],
+                "recent": [_word_payload(r) for r in recent],
+            }
+        )
+    if is_parent(user):
+        kids = children_of(user["id"])
+        day = parse_day(request.args.get("date"))
+        raw = (request.args.get("user_id") or "").strip()
+        detail_id = int(raw) if raw.isdigit() else None
+        kind = parse_kind(request.args.get("kind")) or KIND_NEW
+        allowed = [kid["id"] for kid in kids]
+        if allowed and detail_id not in allowed:
+            detail_id = allowed[0]
+        scope = [detail_id] if detail_id else allowed
+        report = learning_report(day, allowed_ids=scope, detail_id=detail_id)
+        calendar = month_learning_calendar(
+            scope, day, child_count=1 if detail_id else len(allowed)
+        )
+        children = [
+            {
+                "user": _public_user(kid),
+                "stats": word_stats(kid["id"]),
+                "task": today_task(kid["id"], kid),
+            }
+            for kid in kids
+        ]
+        return jsonify(
+            {
+                "ok": True,
+                "user": _public_user(user),
+                "children": children,
+                "day": day,
+                "detail_id": detail_id,
+                "kind": kind,
+                "kind_label": KIND_LABELS.get(kind, ""),
+                "calendar": calendar,
+                "summary": dict(report["summary"]) if report["summary"] else None,
+                "by_user": [dict(r) for r in report["by_user"]],
+                "logs": collect_day_words(scope, day, kind),
+            }
+        )
+    calendar = month_study_calendar(user["id"], user)
+    return jsonify(
+        {
+            "ok": True,
+            "user": _public_user(user),
+            "stats": word_stats(user["id"]),
+            "task": today_task(user["id"], user),
+            "calendar": calendar,
+            "day_words": day_study_words(user["id"], calendar["today"]),
+            **know_checks_of(user),
+        }
+    )
+
+
+@app.get("/api/v1/review/cards")
+@api_required
+def api_review_cards():
+    user = current_user()
+    if not is_learner(user):
+        return api_error("当前账号无需背单词。", 403, "forbidden")
+    task = today_task(user["id"])
+    done_ids = today_reviewed_word_ids(user["id"])
+    new_cards = due_cards(
+        user["id"],
+        limit=task["new"]["remaining"],
+        exclude_ids=done_ids,
+        kind=KIND_NEW,
+    )
+    review_cards = due_cards(
+        user["id"],
+        limit=task["review"]["remaining"],
+        exclude_ids=done_ids,
+        kind=KIND_REVIEW,
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "cards": new_cards + review_cards,
+            "task": task,
+            "stats": word_stats(user["id"]),
+            **know_checks_of(user),
+        }
+    )
+
+
+@app.route("/api/v1/review/<int:word_id>", methods=["POST"])
+@api_required
+def api_review_submit(word_id: int):
+    err = api_csrf()
+    if err:
+        return err
+    user = current_user()
+    if not is_learner(user):
+        return api_error("当前账号无需背单词。", 403, "forbidden")
+    payload = request.get_json(silent=True) or {}
+    rating = payload.get("rating")
+    if rating not in {"again", "easy"}:
+        return api_error("无效的评价。")
+    word = (
+        get_db()
+        .execute("SELECT id, term FROM words WHERE id = ?", (word_id,))
+        .fetchone()
+    )
+    if not word:
+        return api_error("找不到这个单词。", 404, "not_found")
+    if rating == "easy":
+        checks = know_checks_of(user)
+        if checks["speak"]:
+            spoken = payload.get("spoken")
+            if not isinstance(spoken, str) or not spoken_matches(spoken, word["term"]):
+                return api_error("请先正确朗读这个单词。", 400, "spoken")
+        if checks["spell"]:
+            spelling = payload.get("spelling")
+            if not isinstance(spelling, str) or not spelling.strip():
+                return api_error("拼写不正确，请再试一次。", 400, "spelling")
+            if normalize_spelling(spelling) != normalize_spelling(word["term"]):
+                return api_error("拼写不正确，请再试一次。", 400, "spelling")
+    progress = fetch_progress(user["id"], word_id)
+    kind = KIND_REVIEW if progress and progress["status"] == "learning" else KIND_NEW
+    patch = schedule_review(progress, rating)
+    db = get_db()
+    db.execute(
+        """
+        INSERT INTO progress (
+            user_id, word_id, status, review_count, correct_streak,
+            last_reviewed, next_review, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, word_id) DO UPDATE SET
+            status=excluded.status,
+            review_count=excluded.review_count,
+            correct_streak=excluded.correct_streak,
+            last_reviewed=excluded.last_reviewed,
+            next_review=excluded.next_review,
+            updated_at=excluded.updated_at
+        """,
+        (
+            user["id"],
+            word_id,
+            patch["status"],
+            patch["review_count"],
+            patch["correct_streak"],
+            patch["last_reviewed"],
+            patch["next_review"],
+            patch["updated_at"],
+        ),
+    )
+    db.execute(
+        """
+        INSERT INTO review_logs (user_id, word_id, rating, kind, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (user["id"], word_id, rating, kind, patch["updated_at"]),
+    )
+    db.commit()
+    remaining = (
+        db.execute(
+            """
+            SELECT COUNT(*) AS n
+            FROM words w
+            LEFT JOIN progress p ON p.word_id = w.id AND p.user_id = ?
+            WHERE COALESCE(p.status, 'new') = 'new'
+              AND (p.next_review IS NULL OR p.next_review <= ?)
+            """,
+            (user["id"], now_iso()),
+        )
+        .fetchone()["n"]
+    )
+    return jsonify({"ok": True, "remaining": remaining, **patch})
+
+
+@app.get("/api/v1/study-day")
+@api_required
+def api_study_day_v1():
+    day = parse_day(request.args.get("date"))
+    return jsonify(
+        {"ok": True, "date": day, "words": day_study_words(current_user()["id"], day)}
+    )
+
+
+@app.get("/api/v1/profile")
+@api_required
+def api_profile():
+    user = current_user()
+    out: dict = {"ok": True, "user": _public_user(user)}
+    if is_learner(user):
+        out["stats"] = word_stats(user["id"])
+        out["parents"] = [dict(r) for r in parents_of(user["id"])]
+    elif is_parent(user):
+        out["children"] = [
+            {"user": _public_user(kid), "task": today_task(kid["id"], kid)}
+            for kid in children_of(user["id"])
+        ]
+    return jsonify(out)
+
+
+@app.route("/api/v1/profile/child/<int:child_id>/settings", methods=["POST"])
+@api_required
+def api_child_settings(child_id: int):
+    err = api_csrf()
+    if err:
+        return err
+    user = current_user()
+    if not is_parent(user):
+        return api_error("只有家长可以设置学习任务。", 403, "forbidden")
+    if child_id not in child_ids_of(user["id"]):
+        return api_error("只能设置自己的孩子。", 403, "forbidden")
+    data = request.get_json(silent=True) or {}
+    new_value = clamp_daily_words(data.get("daily_words"), DEFAULT_DAILY_WORDS)
+    review_value = clamp_daily_words(data.get("daily_review"), DEFAULT_DAILY_REVIEW)
+    know_speak = 1 if data.get("know_speak") else 0
+    know_spell = 1 if data.get("know_spell") else 0
+    get_db().execute(
+        """
+        UPDATE users SET daily_words = ?, daily_review = ?,
+               know_speak = ?, know_spell = ?
+        WHERE id = ? AND role = ?
+        """,
+        (new_value, review_value, know_speak, know_spell, child_id, ROLE_USER),
+    )
+    get_db().commit()
+    return jsonify({"ok": True, "message": "已保存学习设置。"})
+
+
+@app.route("/api/v1/switch", methods=["POST"])
+@api_required
+def api_switch():
+    err = api_csrf()
+    if err:
+        return err
+    user = current_user()
+    data = request.get_json(silent=True) or {}
+    try:
+        target_id = int(data.get("target_id") or 0)
+    except (TypeError, ValueError):
+        target_id = 0
+    target = get_db().execute("SELECT * FROM users WHERE id = ?", (target_id,)).fetchone()
+    if not target or not is_approved(target):
+        return api_error("找不到可切换的账号。")
+    if target["id"] == user["id"]:
+        return jsonify(
+            {"ok": True, "user": _public_user(target), "csrf_token": csrf_token()}
+        )
+
+    if is_parent(user) and is_learner(target):
+        if target["id"] not in child_ids_of(user["id"]):
+            return api_error("只能切换到自己的孩子。")
+        _switch_session(target)
+        return jsonify(
+            {
+                "ok": True,
+                "user": _public_user(target),
+                "csrf_token": csrf_token(),
+                "message": f"已切换到 {target['username']}。",
+            }
+        )
+
+    if is_learner(user) and is_parent(target):
+        linked = {row["id"] for row in parents_of(user["id"])}
+        if target["id"] not in linked:
+            return api_error("只能切换到绑定的家长。")
+        password = data.get("password") or ""
+        if not check_password_hash(target["password_hash"], password):
+            return api_error("家长密码不正确。")
+        _switch_session(target)
+        return jsonify(
+            {
+                "ok": True,
+                "user": _public_user(target),
+                "csrf_token": csrf_token(),
+                "message": f"已切换到 {target['username']}。",
+            }
+        )
+
+    return api_error("不能切换到该账号。")
+
+
+@app.get("/api/v1/words")
+@api_required(roles={ROLE_ADMIN})
+def api_words():
+    q = (request.args.get("q") or "").strip()
+    rows = list_library(q=q)
+    total = get_db().execute("SELECT COUNT(*) AS n FROM words").fetchone()["n"]
+    return jsonify(
+        {"ok": True, "words": [_word_payload(r) for r in rows], "total": total, "q": q}
+    )
+
+
+def _parse_word_json(data: dict, require_meaning: bool = True) -> dict:
+    parsed = {
+        "term": str(data.get("term") or "").strip(),
+        "phonetic": str(data.get("phonetic") or "").strip(),
+        "meaning": str(data.get("meaning") or "").strip(),
+        "phrase": str(data.get("phrase") or "").strip(),
+        "example": str(data.get("example") or "").strip(),
+        "notes": str(data.get("notes") or "").strip(),
+    }
+    if not parsed["term"]:
+        parsed["error"] = "请填写单词。"
+    elif len(parsed["term"]) > 80:
+        parsed["error"] = "单词过长。"
+    elif require_meaning and not parsed["meaning"]:
+        parsed["error"] = "请填写释义。"
+    elif len(parsed["meaning"]) > 400:
+        parsed["error"] = "释义过长。"
+    elif len(parsed["phrase"]) > 200:
+        parsed["error"] = "短语过长。"
+    elif len(parsed["example"]) > 400:
+        parsed["error"] = "例句过长。"
+    return parsed
+
+
+@app.route("/api/v1/words", methods=["POST"])
+@api_required(roles={ROLE_ADMIN})
+def api_word_create():
+    err = api_csrf()
+    if err:
+        return err
+    data = _parse_word_json(request.get_json(silent=True) or {})
+    if data.get("error"):
+        return api_error(data["error"])
+    db = get_db()
+    dup = db.execute(
+        "SELECT id FROM words WHERE lower(term) = lower(?)", (data["term"],)
+    ).fetchone()
+    if dup:
+        return api_error("词库里已有这个单词。")
+    ts = now_iso()
+    cur = db.execute(
+        """
+        INSERT INTO words (
+            term, phonetic, meaning, phrase, example, notes, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            data["term"],
+            data["phonetic"],
+            data["meaning"],
+            data["phrase"],
+            data["example"],
+            data["notes"],
+            current_user()["id"],
+            ts,
+            ts,
+        ),
+    )
+    db.commit()
+    word = db.execute("SELECT * FROM words WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return jsonify(
+        {
+            "ok": True,
+            "word": _word_payload(word),
+            "message": f"已录入「{data['term']}」，所有用户都可以开始学习。",
+        }
+    )
+
+
+@app.get("/api/v1/words/<int:word_id>")
+@api_required(roles={ROLE_ADMIN})
+def api_word_detail(word_id: int):
+    word = get_db().execute("SELECT * FROM words WHERE id = ?", (word_id,)).fetchone()
+    if not word:
+        return api_error("找不到这个单词。", 404, "not_found")
+    return jsonify({"ok": True, "word": _word_payload(word)})
+
+
+@app.route("/api/v1/words/<int:word_id>", methods=["PUT"])
+@api_required(roles={ROLE_ADMIN})
+def api_word_update(word_id: int):
+    err = api_csrf()
+    if err:
+        return err
+    db = get_db()
+    word = db.execute("SELECT * FROM words WHERE id = ?", (word_id,)).fetchone()
+    if not word:
+        return api_error("找不到这个单词。", 404, "not_found")
+    data = _parse_word_json(request.get_json(silent=True) or {})
+    if data.get("error"):
+        return api_error(data["error"])
+    dup = db.execute(
+        "SELECT id FROM words WHERE lower(term) = lower(?) AND id != ?",
+        (data["term"], word_id),
+    ).fetchone()
+    if dup:
+        return api_error("词库里已有这个单词。")
+    db.execute(
+        """
+        UPDATE words SET term=?, phonetic=?, meaning=?, phrase=?, example=?, notes=?, updated_at=?
+        WHERE id=?
+        """,
+        (
+            data["term"],
+            data["phonetic"],
+            data["meaning"],
+            data["phrase"],
+            data["example"],
+            data["notes"],
+            now_iso(),
+            word_id,
+        ),
+    )
+    db.commit()
+    word = db.execute("SELECT * FROM words WHERE id = ?", (word_id,)).fetchone()
+    return jsonify(
+        {"ok": True, "word": _word_payload(word), "message": "已保存修改。"}
+    )
+
+
+@app.route("/api/v1/words/<int:word_id>", methods=["DELETE"])
+@api_required(roles={ROLE_ADMIN})
+def api_word_delete(word_id: int):
+    err = api_csrf()
+    if err:
+        return err
+    cur = get_db().execute("DELETE FROM words WHERE id = ?", (word_id,))
+    get_db().commit()
+    if not cur.rowcount:
+        return api_error("找不到这个单词。", 404, "not_found")
+    return jsonify({"ok": True, "message": "已删除。"})
+
+
+@app.get("/api/v1/admin/users")
+@api_required(roles={ROLE_ADMIN})
+def api_admin_users():
+    db = get_db()
+    users = db.execute(
+        """
+        SELECT id, username, role, status, created_at FROM users
+        ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, id ASC
+        """
+    ).fetchall()
+    links = db.execute(
+        """
+        SELECT pc.parent_id, u.id, u.username
+        FROM parent_children pc
+        JOIN users u ON u.id = pc.child_id
+        ORDER BY u.username ASC
+        """
+    ).fetchall()
+    children_map: dict[str, list] = {}
+    for row in links:
+        children_map.setdefault(str(row["parent_id"]), []).append(
+            {"id": row["id"], "username": row["username"]}
+        )
+    return jsonify(
+        {
+            "ok": True,
+            "users": [dict(u) for u in users],
+            "admin_count": sum(1 for u in users if u["role"] == ROLE_ADMIN),
+            "pending_count": sum(
+                1
+                for u in users
+                if u["role"] != ROLE_ADMIN and u["status"] == STATUS_PENDING
+            ),
+            "students": [
+                dict(u)
+                for u in users
+                if u["role"] == ROLE_USER and u["status"] == STATUS_APPROVED
+            ],
+            "children_map": children_map,
+        }
+    )
+
+
+@app.route("/api/v1/admin/users/<int:user_id>/status", methods=["POST"])
+@api_required(roles={ROLE_ADMIN})
+def api_admin_set_status(user_id: int):
+    err = api_csrf()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    status = (data.get("status") or "").strip()
+    if status not in {STATUS_APPROVED, STATUS_REJECTED, STATUS_PENDING}:
+        return api_error("无效的审核状态。")
+    target = get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not target:
+        return api_error("找不到该用户。", 404, "not_found")
+    if target["role"] == ROLE_ADMIN:
+        return api_error("不能修改管理员的审核状态。")
+    get_db().execute("UPDATE users SET status = ? WHERE id = ?", (status, user_id))
+    get_db().commit()
+    labels = {
+        STATUS_APPROVED: "已同意，可以登录",
+        STATUS_REJECTED: "已拒绝",
+        STATUS_PENDING: "改回待审核",
+    }
+    return jsonify({"ok": True, "message": f"{target['username']} {labels[status]}。"})
+
+
+@app.route("/api/v1/admin/users/<int:user_id>/role", methods=["POST"])
+@api_required(roles={ROLE_ADMIN})
+def api_admin_set_role(user_id: int):
+    err = api_csrf()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    role = (data.get("role") or "").strip()
+    if role not in {ROLE_ADMIN, ROLE_USER, ROLE_PARENT}:
+        return api_error("无效的角色。")
+    db = get_db()
+    target = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not target:
+        return api_error("找不到该用户。", 404, "not_found")
+    if target["role"] == ROLE_ADMIN and role != ROLE_ADMIN:
+        admin_n = db.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE role = ?", (ROLE_ADMIN,)
+        ).fetchone()["n"]
+        if admin_n <= 1:
+            return api_error("至少保留一名管理员。")
+    extra_sql = ""
+    extra_params: list = []
+    if role == ROLE_ADMIN:
+        extra_sql = ", status = ?"
+        extra_params = [STATUS_APPROVED]
+    db.execute(
+        f"UPDATE users SET role = ?{extra_sql} WHERE id = ?",
+        (role, *extra_params, user_id),
+    )
+    if role != ROLE_PARENT:
+        db.execute("DELETE FROM parent_children WHERE parent_id = ?", (user_id,))
+    if role != ROLE_USER:
+        db.execute("DELETE FROM parent_children WHERE child_id = ?", (user_id,))
+    db.commit()
+    labels = {ROLE_ADMIN: "管理员", ROLE_USER: "学生", ROLE_PARENT: "家长"}
+    return jsonify(
+        {"ok": True, "message": f"已将 {target['username']} 设为{labels[role]}。"}
+    )
+
+
+@app.route("/api/v1/admin/users/<int:user_id>/children", methods=["POST"])
+@api_required(roles={ROLE_ADMIN})
+def api_admin_bind_child(user_id: int):
+    err = api_csrf()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    db = get_db()
+    parent = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not parent or parent["role"] != ROLE_PARENT:
+        return api_error("只能给学生家长绑定孩子。")
+    try:
+        child_id = int(data.get("child_id") or 0)
+    except (TypeError, ValueError):
+        child_id = 0
+    child = db.execute("SELECT * FROM users WHERE id = ?", (child_id,)).fetchone()
+    if not child or child["role"] != ROLE_USER:
+        return api_error("请选择有效的学生账号。")
+    if child["status"] != STATUS_APPROVED:
+        return api_error("只能绑定已审核通过的学生。")
+    db.execute(
+        """
+        INSERT OR IGNORE INTO parent_children (parent_id, child_id, created_at)
+        VALUES (?, ?, ?)
+        """,
+        (user_id, child_id, now_iso()),
+    )
+    db.commit()
+    return jsonify(
+        {"ok": True, "message": f"已把 {child['username']} 绑定给 {parent['username']}。"}
+    )
+
+
+@app.route(
+    "/api/v1/admin/users/<int:user_id>/children/<int:child_id>", methods=["DELETE"]
+)
+@api_required(roles={ROLE_ADMIN})
+def api_admin_unbind_child(user_id: int, child_id: int):
+    err = api_csrf()
+    if err:
+        return err
+    get_db().execute(
+        "DELETE FROM parent_children WHERE parent_id = ? AND child_id = ?",
+        (user_id, child_id),
+    )
+    get_db().commit()
+    return jsonify({"ok": True, "message": "已取消绑定。"})
+
+
+@app.get("/api/v1/admin/learning")
+@api_required(roles={ROLE_ADMIN})
+def api_admin_learning():
+    day = parse_day(request.args.get("date"))
+    raw = (request.args.get("user_id") or "").strip()
+    detail_id = int(raw) if raw.isdigit() else None
+    report = learning_report(day, allowed_ids=None, detail_id=detail_id)
+    return jsonify(
+        {
+            "ok": True,
+            "day": day,
+            "calendar": month_learning_calendar(None, day),
+            "summary": dict(report["summary"]) if report["summary"] else None,
+            "by_user": [dict(r) for r in report["by_user"]],
+            "detail_user": dict(report["detail_user"]) if report["detail_user"] else None,
+            "logs": report["logs"],
+        }
+    )
 
 
 def create_app() -> Flask:
