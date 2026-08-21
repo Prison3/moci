@@ -340,11 +340,13 @@ fun StudyScreen(onExit: () -> Unit) {
             data == null -> LoadingBox()
             cards.isEmpty() -> {
                 val d = data!!
-                when {
-                    d.stats.total == 0 -> EmptyBox("词库还是空的", "请等待管理员录入单词。")
-                    d.task.remaining == 0 -> EmptyBox(
+                if (d.stats.total == 0) {
+                    EmptyBox("词库还是空的", "请等待管理员录入单词。")
+                } else {
+                    // 没有下一张可学的卡（含第一天没有复习）即算今日完成。
+                    EmptyBox(
                         "今日任务已完成",
-                        "今天新词 ${d.task.new.quota} 个、复习 ${d.task.review.quota} 个都已完成。可领取任务奖励。",
+                        "今天没有更多待学单词了。可领取任务奖励。",
                     ) {
                         TaskRewardButton()
                         Spacer(Modifier.height(10.dp))
@@ -355,7 +357,6 @@ fun StudyScreen(onExit: () -> Unit) {
                             onClick = onExit,
                         )
                     }
-                    else -> EmptyBox("今天没有待学习单词", "稍后再来，或明天继续学习。")
                 }
             }
             card == null -> Column(

@@ -482,20 +482,23 @@ def today_task(user_id: int, user=None) -> dict:
     review_done_ids = today_reviewed_word_ids(user_id, KIND_REVIEW)
     new_done = len(new_done_ids)
     review_done = len(review_done_ids)
-    # 配额不能超过词库里实际能学的量。第一天没有「了解」词时，复习配额为 0，
-    # 做完今日新词即算完成，可以领奖励。
-    new_q = min(new_q, new_done + count_due_cards(user_id, KIND_NEW, new_done_ids))
-    review_q = min(
-        review_q, review_done + count_due_cards(user_id, KIND_REVIEW, review_done_ids)
-    )
+    # 与发卡片时相同：今日已学过的词都排除。没有下一张可学的卡时 remaining 为 0。
+    done_ids = today_reviewed_word_ids(user_id)
+    new_left = count_due_cards(user_id, KIND_NEW, done_ids)
+    review_left = count_due_cards(user_id, KIND_REVIEW, done_ids)
+    new_q = min(new_q, new_done + new_left)
+    review_q = min(review_q, review_done + review_left)
     new_part = _part(new_q, new_done)
     review_part = _part(review_q, review_done)
+    remaining = min(new_part["remaining"], new_left) + min(
+        review_part["remaining"], review_left
+    )
     return {
-        "new": new_part,
-        "review": review_part,
+        "new": {**new_part, "remaining": min(new_part["remaining"], new_left)},
+        "review": {**review_part, "remaining": min(review_part["remaining"], review_left)},
         "quota": new_q + review_q,
         "done": new_done + review_done,
-        "remaining": new_part["remaining"] + review_part["remaining"],
+        "remaining": remaining,
     }
 
 
