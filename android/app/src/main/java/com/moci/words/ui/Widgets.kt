@@ -76,11 +76,12 @@ fun <T> rememberData(loader: suspend ApiClient.() -> T): DataState<T> {
     val app = LocalContext.current.applicationContext as MociApp
     val state = remember { DataState<T>() }
     val scope = rememberCoroutineScope()
-    val load: () -> Unit = {
+    val load: (force: Boolean) -> Unit = { force ->
         state.loading = true
         state.error = null
         scope.launch {
             state.data = try {
+                if (force) app.api.invalidateLocalCache()
                 app.api.loader()
             } catch (e: ApiException) {
                 state.error = e.message; null
@@ -90,8 +91,8 @@ fun <T> rememberData(loader: suspend ApiClient.() -> T): DataState<T> {
             state.loading = false
         }
     }
-    LaunchedEffect(Unit) { load() }
-    state.reload = load
+    LaunchedEffect(Unit) { load(false) }
+    state.reload = { load(true) }
     return state
 }
 
