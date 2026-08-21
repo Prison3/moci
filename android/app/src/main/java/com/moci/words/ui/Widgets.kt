@@ -213,14 +213,31 @@ fun MociTextField(
     singleLine: Boolean = true,
     keyboardOptions: androidx.compose.foundation.text.KeyboardOptions = androidx.compose.foundation.text.KeyboardOptions.Default,
 ) {
+    var passwordVisible by remember { mutableStateOf(false) }
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
         singleLine = singleLine,
-        visualTransformation = if (isPassword) androidx.compose.ui.text.input.PasswordVisualTransformation()
-        else androidx.compose.ui.text.input.VisualTransformation.None,
+        visualTransformation = if (isPassword && !passwordVisible) {
+            androidx.compose.ui.text.input.PasswordVisualTransformation()
+        } else {
+            androidx.compose.ui.text.input.VisualTransformation.None
+        },
         keyboardOptions = keyboardOptions,
+        trailingIcon = if (isPassword) {
+            {
+                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                    Icon(
+                        imageVector = if (passwordVisible) MociIcons.EyeOff else MociIcons.Eye,
+                        contentDescription = if (passwordVisible) "隐藏密码" else "显示密码",
+                        tint = InkSoft,
+                    )
+                }
+            }
+        } else {
+            null
+        },
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = OutlinedTextFieldDefaults.colors(
