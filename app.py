@@ -370,6 +370,36 @@ def due_cards(
     return cards
 
 
+def count_due_cards(
+    user_id: int,
+    kind: str,
+    exclude_ids: list[int] | None = None,
+) -> int:
+    """词库里现在还能拿来学的张数（不含今日已学过的）。"""
+    if kind == KIND_REVIEW:
+        sql = """
+            SELECT COUNT(*) AS n
+            FROM words w
+            JOIN progress p ON p.word_id = w.id AND p.user_id = ?
+            WHERE p.status = 'learning'
+        """
+        params: list = [user_id]
+    else:
+        sql = """
+            SELECT COUNT(*) AS n
+            FROM words w
+            LEFT JOIN progress p ON p.word_id = w.id AND p.user_id = ?
+            WHERE COALESCE(p.status, 'new') = 'new'
+              AND (p.next_review IS NULL OR p.next_review <= ?)
+        """
+        params = [user_id, now_iso()]
+    if exclude_ids:
+        placeholders = ",".join("?" * len(exclude_ids))
+        sql += f" AND w.id NOT IN ({placeholders})"
+        params.extend(exclude_ids)
+    return get_db().execute(sql, params).fetchone()["n"] or 0
+
+
 def clamp_daily_words(raw, default: int = DEFAULT_DAILY_WORDS) -> int:
     try:
         value = int(raw)
@@ -448,8 +478,16 @@ def today_task(user_id: int, user=None) -> dict:
         ).fetchone()
     new_q = daily_words_of(user)
     review_q = daily_review_of(user)
-    new_done = len(today_reviewed_word_ids(user_id, KIND_NEW))
-    review_done = len(today_reviewed_word_ids(user_id, KIND_REVIEW))
+    new_done_ids = today_reviewed_word_ids(user_id, KIND_NEW)
+    review_done_ids = today_reviewed_word_ids(user_id, KIND_REVIEW)
+    new_done = len(new_done_ids)
+    review_done = len(review_done_ids)
+    # 配额不能超过词库里实际能学的量。第一天没有「了解」词时，复习配额为 0，
+    # 做完今日新词即算完成，可以领奖励。
+    new_q = min(new_q, new_done + count_due_cards(user_id, KIND_NEW, new_done_ids))
+    review_q = min(
+        review_q, review_done + count_due_cards(user_id, KIND_REVIEW, review_done_ids)
+    )
     new_part = _part(new_q, new_done)
     review_part = _part(review_q, review_done)
     return {
@@ -501,6 +539,7 @@ def month_study_calendar(user_id: int, user=None) -> dict:
     new_q = daily_words_of(user)
     review_q = daily_review_of(user)
     today = now.strftime("%Y-%m-%d")
+    today_info = today_task(user_id, user)
     cells: list[dict] = [{"blank": True} for _ in range(first.weekday())]
     studied_days = 0
     complete_days = 0
@@ -510,7 +549,10 @@ def month_study_calendar(user_id: int, user=None) -> dict:
         new_n = bucket["new"]
         review_n = bucket["review"]
         studied = (new_n + review_n) > 0
-        remaining = max(0, new_q - new_n) + max(0, review_q - review_n)
+        if date_s == today:
+            remaining = today_info["remaining"]
+        else:
+            remaining = max(0, new_q - new_n) + max(0, review_q - review_n)
         complete = remaining == 0 and studied
         future = date_s > today
         if studied:

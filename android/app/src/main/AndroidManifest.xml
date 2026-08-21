@@ -15,6 +15,19 @@
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
         </intent>
+        <!-- 今日任务奖励：拉起各渠道安装的蛋仔派对 -->
+        <package android:name="com.netease.party" />
+        <package android:name="com.netease.party.huawei" />
+        <package android:name="com.netease.party.mi" />
+        <package android:name="com.netease.party.honor" />
+        <package android:name="com.netease.party.oppo" />
+        <package android:name="com.netease.party.vivo" />
+        <package android:name="com.netease.party.bilibili" />
+        <package android:name="com.netease.party.nearme.gamecenter" />
+        <package android:name="com.netease.party.uc" />
+        <package android:name="com.netease.party.m4399" />
+        <package android:name="com.netease.party.baidu" />
+        <package android:name="com.netease.eggypartyhmt" />
     </queries>
 
     <application

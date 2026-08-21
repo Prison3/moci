@@ -344,21 +344,39 @@ fun StudyScreen(onExit: () -> Unit) {
                     d.stats.total == 0 -> EmptyBox("词库还是空的", "请等待管理员录入单词。")
                     d.task.remaining == 0 -> EmptyBox(
                         "今日任务已完成",
-                        "今天新词 ${d.task.new.quota} 个、复习 ${d.task.review.quota} 个都已完成，明天再来。",
-                    )
+                        "今天新词 ${d.task.new.quota} 个、复习 ${d.task.review.quota} 个都已完成。可领取任务奖励。",
+                    ) {
+                        TaskRewardButton()
+                        Spacer(Modifier.height(10.dp))
+                        MociButton(
+                            "回到首页",
+                            kind = BtnKind.Ghost,
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = onExit,
+                        )
+                    }
                     else -> EmptyBox("今天没有待学习单词", "稍后再来，或明天继续学习。")
                 }
             }
             card == null -> Column(
-                Modifier.fillMaxSize(),
+                Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
                 Text("本轮学习完成", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink)
                 Spacer(Modifier.height(8.dp))
-                Text("还不熟的词会再出现。", fontSize = 14.sp, color = InkSoft)
+                Text("还不熟的词会再出现。可领取今日任务奖励。", fontSize = 14.sp, color = InkSoft)
                 Spacer(Modifier.height(20.dp))
-                MociButton("回到首页", onClick = onExit)
+                TaskRewardButton()
+                Spacer(Modifier.height(10.dp))
+                MociButton(
+                    "回到首页",
+                    kind = BtnKind.Ghost,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onExit,
+                )
             }
             else -> {
                 val hideView = if (stage == CheckStage.None) "FLASH" else "HIDDEN"

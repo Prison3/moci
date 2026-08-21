@@ -85,7 +85,12 @@ private fun LearnerHomeScreen(onStartStudy: () -> Unit) {
                     )
                     Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.Bottom) {
-                        Text("今日待完成", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink)
+                        Text(
+                            if (data.task.remaining > 0) "今日待完成" else "今日任务完成",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Ink,
+                        )
                         Spacer(Modifier.padding(horizontal = 4.dp))
                         Text("${data.task.remaining}", style = MociType.heroNumber)
                     }
@@ -95,10 +100,11 @@ private fun LearnerHomeScreen(onStartStudy: () -> Unit) {
                         color = InkSoft,
                     )
                     Spacer(Modifier.height(14.dp))
-                    MociButton(
-                        if (data.task.remaining > 0) "开始学习" else "今日已完成",
-                        onClick = onStartStudy,
-                    )
+                    if (data.task.remaining > 0) {
+                        MociButton("开始学习", onClick = onStartStudy)
+                    } else {
+                        TaskRewardButton()
+                    }
                 }
 
                 // 月历
