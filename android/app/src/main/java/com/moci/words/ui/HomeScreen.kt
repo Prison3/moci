@@ -63,7 +63,13 @@ private fun LearnerHomeScreen(onStartStudy: () -> Unit) {
     var selectedDate by remember { mutableStateOf<String?>(null) }
     var dayWords by remember { mutableStateOf<List<DayWord>?>(null) }
     var wordFilter by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var showRewards by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    if (showRewards) {
+        RewardGamesScreen(onBack = { showRewards = false })
+        return
+    }
 
     val filter = wordFilter
     if (filter != null) {
@@ -87,6 +93,23 @@ private fun LearnerHomeScreen(onStartStudy: () -> Unit) {
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState()),
             ) {
+                StatGrid(
+                    listOf(
+                        "${data.stats.total}" to "单词",
+                        "${data.stats.newCount}" to "新词",
+                        "${data.stats.learning}" to "了解",
+                        "${data.stats.mastered}" to "掌握",
+                    ),
+                    onItemClick = { index ->
+                        wordFilter = when (index) {
+                            0 -> "" to "全部单词"
+                            1 -> "new" to "新词"
+                            2 -> "learning" to "了解"
+                            else -> "mastered" to "掌握"
+                        }
+                    },
+                )
+
                 // 今日任务
                 PanelCard {
                     Text(
@@ -114,7 +137,7 @@ private fun LearnerHomeScreen(onStartStudy: () -> Unit) {
                     if (data.task.remaining > 0) {
                         MociButton("开始学习", onClick = onStartStudy)
                     } else {
-                        TaskRewardButton()
+                        TaskRewardButton { showRewards = true }
                     }
                 }
 
@@ -147,23 +170,6 @@ private fun LearnerHomeScreen(onStartStudy: () -> Unit) {
                     }
                     DayWordList(shownWords)
                 }
-
-                StatGrid(
-                    listOf(
-                        "${data.stats.total}" to "单词",
-                        "${data.stats.newCount}" to "新词",
-                        "${data.stats.learning}" to "了解",
-                        "${data.stats.mastered}" to "掌握",
-                    ),
-                    onItemClick = { index ->
-                        wordFilter = when (index) {
-                            0 -> "" to "全部单词"
-                            1 -> "new" to "新词"
-                            2 -> "learning" to "了解"
-                            else -> "mastered" to "掌握"
-                        }
-                    },
-                )
                 Spacer(Modifier.height(16.dp))
             }
         }

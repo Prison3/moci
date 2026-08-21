@@ -85,6 +85,12 @@ fun StudyScreen(onExit: () -> Unit) {
     var spellError by remember { mutableStateOf<String?>(null) }
     var spellInput by remember { mutableStateOf("") }
     var submitting by remember { mutableStateOf(false) }
+    var showRewards by remember { mutableStateOf(false) }
+
+    if (showRewards) {
+        RewardGamesScreen(onBack = { showRewards = false })
+        return
+    }
 
     fun load() {
         loading = true
@@ -348,7 +354,7 @@ fun StudyScreen(onExit: () -> Unit) {
                         "今日任务已完成",
                         "今天没有更多待学单词了。可领取任务奖励。",
                     ) {
-                        TaskRewardButton()
+                        TaskRewardButton { showRewards = true }
                         Spacer(Modifier.height(10.dp))
                         MociButton(
                             "回到首页",
@@ -370,7 +376,7 @@ fun StudyScreen(onExit: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Text("还不熟的词会再出现。可领取今日任务奖励。", fontSize = 14.sp, color = InkSoft)
                 Spacer(Modifier.height(20.dp))
-                TaskRewardButton()
+                TaskRewardButton { showRewards = true }
                 Spacer(Modifier.height(10.dp))
                 MociButton(
                     "回到首页",

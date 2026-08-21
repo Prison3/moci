@@ -49,7 +49,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.moci.words.EggyParty
 import com.moci.words.MociApp
 import com.moci.words.api.ApiClient
 import com.moci.words.api.ApiException
@@ -362,23 +361,14 @@ fun EmptyBox(title: String, message: String, action: @Composable (() -> Unit)? =
     }
 }
 
-/** 今日任务完成后领取奖励：启动蛋仔派对。 */
+/** 今日任务完成后领取奖励：打开内置小游戏大厅。 */
 @Composable
-fun TaskRewardButton(modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    var claimed by remember { mutableStateOf(EggyParty.claimedToday(context)) }
+fun TaskRewardButton(modifier: Modifier = Modifier, onClick: () -> Unit) {
     MociButton(
-        if (claimed) "打开蛋仔派对" else "领取任务奖励",
+        "领取任务奖励",
         modifier = modifier.fillMaxWidth(),
-    ) {
-        if (EggyParty.launch(context)) {
-            EggyParty.markClaimed(context)
-            claimed = true
-        } else {
-            context.toast("还没有安装蛋仔派对，正在打开应用商店。")
-            EggyParty.openStore(context)
-        }
-    }
+        onClick = onClick,
+    )
 }
 
 // ---------------------------------------------------------------------------
