@@ -207,7 +207,7 @@ private fun LearnerWordDetail(word: Word, onBack: () -> Unit) {
         }
         PanelCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(word.term, style = MociType.cardTerm)
+                SpeakText(word.term, style = MociType.cardTerm)
                 Spacer(Modifier.width(6.dp))
                 SpeakIconButton(word.term, size = 26)
             }

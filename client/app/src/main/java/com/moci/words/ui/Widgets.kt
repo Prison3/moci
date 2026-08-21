@@ -42,11 +42,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.moci.words.MociApp
@@ -271,13 +274,13 @@ fun MociTextField(
 }
 
 // ---------------------------------------------------------------------------
-// 朗读按钮
+// 朗读：点文字或喇叭均可播放
 
 @Composable
 fun SpeakIconButton(text: String, modifier: Modifier = Modifier, size: Int = 22) {
     val app = LocalContext.current.applicationContext as MociApp
     val speaking by app.tts.speakingText.collectAsState()
-    val isSpeaking = speaking == text
+    val isSpeaking = speaking == text.trim()
     IconButton(
         onClick = { app.tts.speak(text) },
         modifier = modifier.size((size + 14).dp),
@@ -289,6 +292,42 @@ fun SpeakIconButton(text: String, modifier: Modifier = Modifier, size: Int = 22)
             modifier = Modifier.size(size.dp),
         )
     }
+}
+
+/** 可点击朗读的英文文本；正在朗读时用更深绿色高亮。 */
+@Composable
+fun SpeakText(
+    text: String,
+    modifier: Modifier = Modifier,
+    style: TextStyle = TextStyle.Default,
+    fontSize: TextUnit = TextUnit.Unspecified,
+    fontWeight: FontWeight? = null,
+    fontFamily: FontFamily? = null,
+    color: Color = Color.Unspecified,
+    maxLines: Int = Int.MAX_VALUE,
+) {
+    val app = LocalContext.current.applicationContext as MociApp
+    val speaking by app.tts.speakingText.collectAsState()
+    val value = text.trim()
+    val isSpeaking = speaking == value
+    val resolvedColor = when {
+        isSpeaking -> Pine2
+        color != Color.Unspecified -> color
+        style.color != Color.Unspecified -> style.color
+        else -> Ink
+    }
+    Text(
+        text = text,
+        style = style,
+        fontSize = fontSize,
+        fontWeight = fontWeight,
+        fontFamily = fontFamily,
+        color = resolvedColor,
+        maxLines = maxLines,
+        modifier = modifier.clickable(enabled = value.isNotEmpty()) {
+            app.tts.speak(value)
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -534,7 +573,13 @@ fun DayWordItem(w: DayWord) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(w.term, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink, fontFamily = SerifFamily)
+                    SpeakText(
+                        w.term,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Ink,
+                        fontFamily = SerifFamily,
+                    )
                     Spacer(Modifier.width(4.dp))
                     SpeakIconButton(w.term, size = 18)
                     w.username?.let {
@@ -589,7 +634,12 @@ fun ExtraLine(label: String, text: String) {
     ) {
         Text(label, fontSize = 12.sp, color = Pine, fontWeight = FontWeight.Medium)
         Spacer(Modifier.width(6.dp))
-        Text(text, fontSize = 13.sp, color = InkSoft, modifier = Modifier.weight(1f))
+        SpeakText(
+            text,
+            fontSize = 13.sp,
+            color = InkSoft,
+            modifier = Modifier.weight(1f),
+        )
         SpeakIconButton(text, size = 16)
     }
 }

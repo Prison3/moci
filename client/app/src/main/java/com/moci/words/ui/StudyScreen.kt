@@ -12,6 +12,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
@@ -41,10 +44,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -485,18 +495,14 @@ fun StudyScreen(onExit: () -> Unit) {
                             color = Ink,
                         )
                         Spacer(Modifier.height(10.dp))
-                        MociTextField(
+                        SpellBoxesInput(
+                            term = card.term,
                             value = spellInput,
+                            isWrong = spellError != null,
                             onValueChange = {
                                 spellInput = it
                                 spellError = null
                             },
-                            label = "输入英文拼写",
-                            keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.None,
-                                keyboardType = KeyboardType.Ascii,
-                                autoCorrectEnabled = false,
-                            ),
                         )
                         spellError?.let {
                             Spacer(Modifier.height(6.dp))
@@ -555,7 +561,7 @@ private fun FlashCard(card: Card, modifier: Modifier = Modifier) {
             )
             Spacer(Modifier.height(14.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(card.term, style = MociType.cardTerm)
+                SpeakText(card.term, style = MociType.cardTerm)
                 Spacer(Modifier.width(6.dp))
                 SpeakIconButton(card.term, size = 26)
             }
@@ -607,6 +613,178 @@ private fun HiddenWordCard(modifier: Modifier = Modifier) {
         Spacer(Modifier.height(18.dp))
         Text("单词信息已隐藏，请凭记忆默写", fontSize = 14.sp, color = InkSoft)
     }
+}
+
+/** 与服务端 normalize_spelling 对齐：trim、小写、空白压成单空格。 */
+private fun normalizeSpelling(text: String): String =
+    text.trim().lowercase().replace(Regex("\\s+"), " ")
+
+/**
+ * 默写方格：进入时先按当前单词字母数放出空格，输入英文时逐格填入。
+ * 多词短语中间的空格自动插入，不占用字母方块。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SpellBoxesInput(
+    term: String,
+    value: String,
+    isWrong: Boolean,
+    onValueChange: (String) -> Unit,
+) {
+    val expected = remember(term) { normalizeSpelling(term) }
+    val slots = remember(expected) {
+        buildList {
+            var letterIndex = 0
+            for (ch in expected) {
+                if (ch.isWhitespace()) {
+                    add(-1)
+                } else {
+                    add(letterIndex)
+                    letterIndex += 1
+                }
+            }
+        }
+    }
+    val letterCount = slots.count { it >= 0 }
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val typedLetters = value.filter { !it.isWhitespace() }
+
+    LaunchedEffect(expected) {
+        focusRequester.requestFocus()
+        keyboard?.show()
+    }
+
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            "共 $letterCount 个字母方块",
+            fontSize = 13.sp,
+            color = InkSoft,
+        )
+        Spacer(Modifier.height(8.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Paper2)
+                .border(
+                    1.dp,
+                    if (isWrong) Cinnabar else Line,
+                    RoundedCornerShape(14.dp),
+                )
+                .clickable {
+                    focusRequester.requestFocus()
+                    keyboard?.show()
+                }
+                .padding(horizontal = 12.dp, vertical = 14.dp),
+        ) {
+            BasicTextField(
+                value = typedLetters,
+                onValueChange = { raw ->
+                    val letters = raw.lowercase()
+                        .filter { it.isLetterOrDigit() || it == '\'' || it == '-' }
+                        .take(letterCount)
+                    onValueChange(buildSpellFromLetters(letters, expected))
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.None,
+                    keyboardType = KeyboardType.Ascii,
+                    autoCorrectEnabled = false,
+                ),
+                cursorBrush = SolidColor(Pine),
+                textStyle = TextStyle(
+                    color = androidx.compose.ui.graphics.Color.Transparent,
+                    fontSize = 1.sp,
+                ),
+                decorationBox = { inner ->
+                    Box {
+                        inner()
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            slots.forEach { idx ->
+                                if (idx < 0) {
+                                    Spacer(Modifier.width(10.dp))
+                                } else {
+                                    SpellLetterCell(
+                                        char = typedLetters.getOrNull(idx),
+                                        active = typedLetters.length == idx,
+                                        isWrong = isWrong,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "点方格输入英文拼写",
+            fontSize = 12.sp,
+            color = InkSoft,
+        )
+    }
+}
+
+@Composable
+private fun SpellLetterCell(
+    char: Char?,
+    active: Boolean,
+    isWrong: Boolean,
+) {
+    Box(
+        Modifier
+            .size(36.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                when {
+                    isWrong -> Cinnabar.copy(alpha = 0.08f)
+                    char != null -> Pine.copy(alpha = 0.10f)
+                    else -> Paper
+                },
+            )
+            .border(
+                width = if (active) 2.dp else 1.dp,
+                color = when {
+                    isWrong -> Cinnabar
+                    active -> Pine
+                    char != null -> Pine2
+                    else -> Line
+                },
+                shape = RoundedCornerShape(8.dp),
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = char?.lowercaseChar()?.toString().orEmpty(),
+            fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Bold,
+            fontSize = 18.sp,
+            color = Ink,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/** 把已输入字母按目标词模板填回（自动补空格）。 */
+private fun buildSpellFromLetters(letters: String, expected: String): String {
+    val clean = letters.filter { !it.isWhitespace() }
+    if (clean.isEmpty()) return ""
+    val out = StringBuilder()
+    var i = 0
+    for (ch in expected) {
+        if (ch.isWhitespace()) {
+            if (i >= clean.length) break
+            out.append(' ')
+        } else {
+            if (i >= clean.length) break
+            out.append(clean[i++])
+        }
+    }
+    return out.toString()
 }
 
 @Composable
