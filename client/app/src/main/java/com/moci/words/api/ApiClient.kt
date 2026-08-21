@@ -429,6 +429,7 @@ class ApiClient(context: Context, private val baseUrl: String) {
     private fun wordJson(w: Word) = JSONObject().apply {
         put("term", w.term)
         put("phonetic", w.phonetic)
+        put("pos", w.pos)
         put("meaning", w.meaning)
         put("phrase", w.phrase)
         put("example", w.example)

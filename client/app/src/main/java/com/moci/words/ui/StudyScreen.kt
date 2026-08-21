@@ -559,6 +559,10 @@ private fun FlashCard(card: Card, modifier: Modifier = Modifier) {
                 SpeakText(card.term, style = MociType.cardTerm)
                 Spacer(Modifier.width(6.dp))
                 SpeakIconButton(card.term, size = 26)
+                if (card.pos.isNotEmpty()) {
+                    Spacer(Modifier.width(8.dp))
+                    PosBadges(card.pos)
+                }
             }
             if (card.phonetic.isNotEmpty()) {
                 Text(card.phonetic, fontSize = 15.sp, color = InkSoft)

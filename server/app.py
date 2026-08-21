@@ -326,7 +326,7 @@ def due_cards(
         return []
     if kind == KIND_REVIEW:
         sql = """
-            SELECT w.id, w.term, w.phonetic, w.meaning, w.phrase, w.example, w.notes,
+            SELECT w.id, w.term, w.phonetic, w.pos, w.meaning, w.phrase, w.example, w.notes,
                    COALESCE(p.status, 'new') AS status,
                    COALESCE(p.review_count, 0) AS review_count,
                    COALESCE(p.correct_streak, 0) AS correct_streak,
@@ -338,7 +338,7 @@ def due_cards(
         params: list = [user_id]
     else:
         sql = """
-            SELECT w.id, w.term, w.phonetic, w.meaning, w.phrase, w.example, w.notes,
+            SELECT w.id, w.term, w.phonetic, w.pos, w.meaning, w.phrase, w.example, w.notes,
                    COALESCE(p.status, 'new') AS status,
                    COALESCE(p.review_count, 0) AS review_count,
                    COALESCE(p.correct_streak, 0) AS correct_streak,
@@ -1089,12 +1089,13 @@ def word_new():
         get_db().execute(
             """
             INSERT INTO words (
-                term, phonetic, meaning, phrase, example, notes, created_by, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                term, phonetic, pos, meaning, phrase, example, notes, created_by, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data["term"],
                 data["phonetic"],
+                data["pos"],
                 data["meaning"],
                 data["phrase"],
                 data["example"],
@@ -1154,12 +1155,13 @@ def word_edit(word_id: int):
             )
         get_db().execute(
             """
-            UPDATE words SET term=?, phonetic=?, meaning=?, phrase=?, example=?, notes=?, updated_at=?
+            UPDATE words SET term=?, phonetic=?, pos=?, meaning=?, phrase=?, example=?, notes=?, updated_at=?
             WHERE id=?
             """,
             (
                 data["term"],
                 data["phonetic"],
+                data["pos"],
                 data["meaning"],
                 data["phrase"],
                 data["example"],
@@ -1212,12 +1214,13 @@ def word_quick():
     get_db().execute(
         """
         INSERT INTO words (
-            term, phonetic, meaning, phrase, example, notes, created_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            term, phonetic, pos, meaning, phrase, example, notes, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             data["term"],
             data["phonetic"],
+            data["pos"],
             data["meaning"],
             data["phrase"],
             data["example"],
@@ -1418,6 +1421,13 @@ def admin_learning():
 def _parse_word_form(require_meaning: bool = True) -> dict:
     term = (request.form.get("term") or "").strip()
     phonetic = (request.form.get("phonetic") or "").strip()
+    pos = (request.form.get("pos") or "").strip()
+    tags = [t.strip() for t in request.form.getlist("pos_tag") if (t or "").strip()]
+    if tags:
+        # 网页多选优先；保持常用顺序
+        order = ["n.", "v.", "adj.", "adv.", "prep.", "conj.", "pron.", "art.", "num.", "interj."]
+        ordered = [t for t in order if t in tags] + [t for t in tags if t not in order]
+        pos = " / ".join(dict.fromkeys(ordered))
     meaning = (request.form.get("meaning") or "").strip()
     phrase = (request.form.get("phrase") or "").strip()
     example = (request.form.get("example") or "").strip()
@@ -1425,6 +1435,7 @@ def _parse_word_form(require_meaning: bool = True) -> dict:
     data = {
         "term": term,
         "phonetic": phonetic,
+        "pos": pos,
         "meaning": meaning,
         "phrase": phrase,
         "example": example,
@@ -1434,6 +1445,8 @@ def _parse_word_form(require_meaning: bool = True) -> dict:
         data["error"] = "请填写单词。"
     elif len(term) > 80:
         data["error"] = "单词过长。"
+    elif len(pos) > 80:
+        data["error"] = "词性过长。"
     elif require_meaning and not meaning:
         data["error"] = "请填写释义。"
     elif len(meaning) > 400:
@@ -1478,6 +1491,7 @@ def _word_payload(row) -> dict:
         "id": row["id"],
         "term": row["term"],
         "phonetic": row["phonetic"] or "",
+        "pos": (row["pos"] or "") if "pos" in row.keys() else "",
         "meaning": row["meaning"] or "",
         "phrase": row["phrase"] or "",
         "example": row["example"] or "",
@@ -1972,9 +1986,22 @@ def api_words():
 
 
 def _parse_word_json(data: dict, require_meaning: bool = True) -> dict:
+    raw_pos = str(data.get("pos") or "").strip()
+    if isinstance(data.get("pos_tags"), list):
+        tags = [str(t).strip() for t in data["pos_tags"] if str(t).strip()]
+        raw_pos = " / ".join(dict.fromkeys(tags)) if tags else raw_pos
+    else:
+        # 规范化 “n.,v.” / “n.  v.” 为 “n. / v.”
+        parts = [
+            p.strip()
+            for p in re.split(r"[/|,，、;；|]+|\s{2,}", raw_pos)
+            if p.strip()
+        ]
+        raw_pos = " / ".join(dict.fromkeys(parts)) if parts else ""
     parsed = {
         "term": str(data.get("term") or "").strip(),
         "phonetic": str(data.get("phonetic") or "").strip(),
+        "pos": raw_pos,
         "meaning": str(data.get("meaning") or "").strip(),
         "phrase": str(data.get("phrase") or "").strip(),
         "example": str(data.get("example") or "").strip(),
@@ -1984,6 +2011,8 @@ def _parse_word_json(data: dict, require_meaning: bool = True) -> dict:
         parsed["error"] = "请填写单词。"
     elif len(parsed["term"]) > 80:
         parsed["error"] = "单词过长。"
+    elif len(parsed["pos"]) > 80:
+        parsed["error"] = "词性过长。"
     elif require_meaning and not parsed["meaning"]:
         parsed["error"] = "请填写释义。"
     elif len(parsed["meaning"]) > 400:
@@ -2014,13 +2043,14 @@ def api_word_create():
     cur = db.execute(
         """
         INSERT INTO words (
-            term, phonetic, meaning, phrase, example, notes, created_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            term, phonetic, pos, meaning, phrase, example, notes, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
         """,
         (
             data["term"],
             data["phonetic"],
+            data["pos"],
             data["meaning"],
             data["phrase"],
             data["example"],
@@ -2072,12 +2102,13 @@ def api_word_update(word_id: int):
         return api_error("词库里已有这个单词。")
     db.execute(
         """
-        UPDATE words SET term=?, phonetic=?, meaning=?, phrase=?, example=?, notes=?, updated_at=?
+        UPDATE words SET term=?, phonetic=?, pos=?, meaning=?, phrase=?, example=?, notes=?, updated_at=?
         WHERE id=?
         """,
         (
             data["term"],
             data["phonetic"],
+            data["pos"],
             data["meaning"],
             data["phrase"],
             data["example"],

@@ -168,6 +168,10 @@ private fun ProgressWordRow(w: Word, onClick: () -> Unit) {
                     color = Ink,
                     fontFamily = SerifFamily,
                 )
+                if (w.pos.isNotEmpty()) {
+                    Spacer(Modifier.width(8.dp))
+                    PosBadges(w.pos)
+                }
                 if (w.phonetic.isNotEmpty()) {
                     Spacer(Modifier.width(8.dp))
                     Text(w.phonetic, fontSize = 12.sp, color = InkSoft)
@@ -210,6 +214,10 @@ private fun LearnerWordDetail(word: Word, onBack: () -> Unit) {
                 SpeakText(word.term, style = MociType.cardTerm)
                 Spacer(Modifier.width(6.dp))
                 SpeakIconButton(word.term, size = 26)
+                if (word.pos.isNotEmpty()) {
+                    Spacer(Modifier.width(8.dp))
+                    PosBadges(word.pos)
+                }
             }
             if (word.phonetic.isNotEmpty()) {
                 Text(word.phonetic, fontSize = 15.sp, color = InkSoft)

@@ -9,6 +9,14 @@
     {{ speak_btn(word.term, '朗读单词') }}
   </div>
   {% if word.phonetic %}<p class="phonetic">{{ word.phonetic }}</p>{% endif %}
+  {% if word.pos %}
+    <p class="pos-row">
+      {% for tag in word.pos.replace(',', ' / ').replace('，', ' / ').replace('、', ' / ').split('/') %}
+        {% set t = tag.strip() %}
+        {% if t %}<span class="pos-chip">{{ t }}</span>{% endif %}
+      {% endfor %}
+    </p>
+  {% endif %}
   <p class="meaning">{{ word.meaning }}</p>
   {% if word.phrase %}
     <p class="extra"><span class="extra-label">短语</span> {{ word.phrase }}

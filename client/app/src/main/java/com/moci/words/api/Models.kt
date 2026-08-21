@@ -52,6 +52,7 @@ data class Word(
     val id: Int,
     val term: String,
     val phonetic: String,
+    val pos: String = "",
     val meaning: String,
     val phrase: String,
     val example: String,
@@ -59,11 +60,14 @@ data class Word(
     val status: String = "",
     val updatedAt: String = "",
 ) {
+    val posTags: List<String> get() = parsePosTags(pos)
+
     companion object {
         fun from(o: JSONObject) = Word(
             id = o.getInt("id"),
             term = o.getString("term"),
             phonetic = o.optString("phonetic"),
+            pos = o.optString("pos"),
             meaning = o.optString("meaning"),
             phrase = o.optString("phrase"),
             example = o.optString("example"),
@@ -79,6 +83,7 @@ data class Card(
     val id: Int,
     val term: String,
     val phonetic: String,
+    val pos: String = "",
     val meaning: String,
     val phrase: String,
     val example: String,
@@ -86,11 +91,14 @@ data class Card(
     val status: String,
     val kind: String, // new | review
 ) {
+    val posTags: List<String> get() = parsePosTags(pos)
+
     companion object {
         fun from(o: JSONObject) = Card(
             id = o.getInt("id"),
             term = o.getString("term"),
             phonetic = o.optString("phonetic"),
+            pos = o.optString("pos"),
             meaning = o.optString("meaning"),
             phrase = o.optString("phrase"),
             example = o.optString("example"),
@@ -100,6 +108,22 @@ data class Card(
         )
     }
 }
+
+/** 一词可有多个词性，存成 “n. / v.” 一类文本。 */
+fun parsePosTags(raw: String): List<String> =
+    raw.replace(Regex("""[/|,，、;；|]+"""), " ")
+        .split(Regex("""\s+"""))
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinct()
+
+fun joinPosTags(tags: Collection<String>): String =
+    tags.map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString(" / ")
+
+/** 小学常用词性，录入时可多选。 */
+val COMMON_POS_TAGS = listOf(
+    "n.", "v.", "adj.", "adv.", "prep.", "conj.", "pron.", "art.", "num.", "interj.",
+)
 
 data class TaskPart(val quota: Int, val done: Int, val remaining: Int) {
     companion object {

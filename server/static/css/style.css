@@ -453,6 +453,45 @@ a.cal-cell {
   font-size: 13px;
 }
 
+.pos-field {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--paper-2);
+}
+
+.pos-field legend {
+  padding: 0 6px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.pos-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.pos-picks .check-line {
+  margin: 4px 0;
+}
+
+.pos-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 0;
+}
+
+.pos-chip {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: var(--pine-2, var(--pine));
+  background: color-mix(in srgb, var(--pine) 12%, transparent);
+}
+
 .word-row p,
 .meaning,
 .example,

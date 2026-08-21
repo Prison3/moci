@@ -57,6 +57,7 @@ import com.moci.words.api.ApiClient
 import com.moci.words.api.ApiException
 import com.moci.words.api.CalCell
 import com.moci.words.api.DayWord
+import com.moci.words.api.parsePosTags
 import com.moci.words.api.MonthCal
 import kotlinx.coroutines.launch
 
@@ -211,6 +212,20 @@ fun MociBadge(text: String, color: Color) {
             .background(color.copy(alpha = 0.12f))
             .padding(horizontal = 8.dp, vertical = 2.dp),
     )
+}
+
+/** 一词多词性：把 “n. / v.” 拆成多个徽章。 */
+@Composable
+fun PosBadges(pos: String, color: Color = Pine2, modifier: Modifier = Modifier) {
+    val tags = remember(pos) { parsePosTags(pos) }
+    if (tags.isEmpty()) return
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        tags.forEach { MociBadge(it, color) }
+    }
 }
 
 @Composable

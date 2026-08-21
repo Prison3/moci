@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,7 +40,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.moci.words.MociApp
 import com.moci.words.api.ApiException
+import com.moci.words.api.COMMON_POS_TAGS
 import com.moci.words.api.Word
+import com.moci.words.api.joinPosTags
+import com.moci.words.api.parsePosTags
 import kotlinx.coroutines.launch
 
 private sealed interface WordsView {
@@ -187,6 +192,10 @@ private fun WordRow(w: Word, onClick: () -> Unit) {
                     color = Ink,
                     fontFamily = SerifFamily,
                 )
+                if (w.pos.isNotEmpty()) {
+                    Spacer(Modifier.width(8.dp))
+                    PosBadges(w.pos)
+                }
                 if (w.phonetic.isNotEmpty()) {
                     Spacer(Modifier.width(8.dp))
                     Text(w.phonetic, fontSize = 12.sp, color = InkSoft)
@@ -233,6 +242,10 @@ private fun WordDetail(
                 SpeakText(word.term, style = MociType.cardTerm)
                 Spacer(Modifier.width(6.dp))
                 SpeakIconButton(word.term, size = 26)
+                if (word.pos.isNotEmpty()) {
+                    Spacer(Modifier.width(8.dp))
+                    PosBadges(word.pos)
+                }
             }
             if (word.phonetic.isNotEmpty()) {
                 Text(word.phonetic, fontSize = 15.sp, color = InkSoft)
@@ -273,6 +286,7 @@ private fun WordDetail(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WordForm(
     initial: Word?,
@@ -284,12 +298,19 @@ private fun WordForm(
 
     var term by remember { mutableStateOf(initial?.term ?: "") }
     var phonetic by remember { mutableStateOf(initial?.phonetic ?: "") }
+    var selectedPos by remember {
+        mutableStateOf(parsePosTags(initial?.pos.orEmpty()).toSet())
+    }
     var meaning by remember { mutableStateOf(initial?.meaning ?: "") }
     var phrase by remember { mutableStateOf(initial?.phrase ?: "") }
     var example by remember { mutableStateOf(initial?.example ?: "") }
     var notes by remember { mutableStateOf(initial?.notes ?: "") }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
+
+    val posChoices = remember(selectedPos) {
+        (COMMON_POS_TAGS + selectedPos.filter { it !in COMMON_POS_TAGS }).distinct()
+    }
 
     Column(
         Modifier
@@ -316,6 +337,31 @@ private fun WordForm(
         Spacer(Modifier.height(10.dp))
         MociTextField(phonetic, { phonetic = it }, "音标（可选）")
         Spacer(Modifier.height(10.dp))
+        Text("词性（可多选）", fontSize = 13.sp, color = InkSoft)
+        Spacer(Modifier.height(8.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            posChoices.forEach { tag ->
+                val on = tag in selectedPos
+                Text(
+                    tag,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (on) Pine else InkSoft,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (on) Pine.copy(alpha = 0.14f) else Paper2)
+                        .border(1.dp, if (on) Pine else Line, RoundedCornerShape(999.dp))
+                        .clickable {
+                            selectedPos = if (on) selectedPos - tag else selectedPos + tag
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
         MociTextField(meaning, { meaning = it }, "释义（必填）", singleLine = false)
         Spacer(Modifier.height(10.dp))
         MociTextField(phrase, { phrase = it }, "短语（可选）")
@@ -337,8 +383,13 @@ private fun WordForm(
             error = null
             val word = Word(
                 id = initial?.id ?: 0,
-                term = term, phonetic = phonetic, meaning = meaning,
-                phrase = phrase, example = example, notes = notes,
+                term = term,
+                phonetic = phonetic,
+                pos = joinPosTags(COMMON_POS_TAGS.filter { it in selectedPos } + selectedPos.filter { it !in COMMON_POS_TAGS }),
+                meaning = meaning,
+                phrase = phrase,
+                example = example,
+                notes = notes,
             )
             scope.launch {
                 try {

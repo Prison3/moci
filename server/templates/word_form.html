@@ -14,6 +14,19 @@
       <span>音标（可选）</span>
       <input type="text" name="phonetic" maxlength="80" value="{{ word.phonetic if word else '' }}" placeholder="/ˈæp.əl/">
     </label>
+    <fieldset class="pos-field">
+      <legend>词性（可多选）</legend>
+      {% set pos_list = ((word.pos if word else '') or '').replace(',', '/').replace('，', '/').replace('、', '/').split('/') %}
+      {% set selected = pos_list | map('trim') | select | list %}
+      <div class="pos-picks">
+        {% for tag in ['n.', 'v.', 'adj.', 'adv.', 'prep.', 'conj.', 'pron.', 'art.', 'num.', 'interj.'] %}
+          <label class="check-line">
+            <input type="checkbox" name="pos_tag" value="{{ tag }}" {% if tag in selected %}checked{% endif %}>
+            <span>{{ tag }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
     <label>
       <span>释义</span>
       <textarea name="meaning" required maxlength="400" rows="3" placeholder="苹果；公司名">{{ word.meaning if word else '' }}</textarea>
