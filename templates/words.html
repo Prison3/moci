@@ -7,16 +7,6 @@
   <button class="btn btn-ghost" type="submit">搜索</button>
 </form>
 
-{% if not is_admin %}
-<div class="filters" role="tablist">
-  <a class="chip {% if not status %}is-active{% endif %}" href="{{ url_for('words', q=q) }}">全部</a>
-  <a class="chip {% if status == 'new' %}is-active{% endif %}" href="{{ url_for('words', q=q, status='new') }}">新词</a>
-  <a class="chip {% if status == 'learning' %}is-active{% endif %}" href="{{ url_for('words', q=q, status='learning') }}">复习</a>
-  <a class="chip {% if status == 'mastered' %}is-active{% endif %}" href="{{ url_for('words', q=q, status='mastered') }}">掌握</a>
-</div>
-{% endif %}
-
-{% if is_admin %}
 <section class="quick-add panel">
   <h2>快速录入</h2>
   <form method="post" action="{{ url_for('word_quick') }}" class="quick-form">
@@ -27,7 +17,6 @@
     <a class="link-more" href="{{ url_for('word_new') }}">填写音标、短语、例句等完整信息</a>
   </form>
 </section>
-{% endif %}
 
 {% if words %}
   <ul class="word-list">
@@ -39,23 +28,16 @@
             {% if w.phonetic %}<span class="phonetic">{{ w.phonetic }}</span>{% endif %}
             <p>{{ w.meaning }}</p>
           </div>
-          {% if not is_admin %}
-            <span class="badge badge-{{ w.status }}">
-              {% if w.status == 'new' %}新词{% elif w.status == 'learning' %}复习{% elif w.status == 'mastered' %}掌握{% endif %}
-            </span>
-          {% endif %}
         </a>
       </li>
     {% endfor %}
   </ul>
 {% else %}
   <div class="empty">
-    {% if q or status %}
+    {% if q %}
       <p>没有符合条件的单词。</p>
-    {% elif is_admin %}
-      <p>还没有单词，先在上面录入一个。</p>
     {% else %}
-      <p>管理员还没有录入单词。</p>
+      <p>还没有单词，先在上面录入一个。</p>
     {% endif %}
   </div>
 {% endif %}

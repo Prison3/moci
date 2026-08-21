@@ -19,10 +19,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -40,6 +43,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -211,32 +217,41 @@ fun MociTextField(
     modifier: Modifier = Modifier,
     isPassword: Boolean = false,
     singleLine: Boolean = true,
-    keyboardOptions: androidx.compose.foundation.text.KeyboardOptions = androidx.compose.foundation.text.KeyboardOptions.Default,
+    trailingContent: (@Composable () -> Unit)? = null,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
 ) {
     var passwordVisible by remember { mutableStateOf(false) }
+    val hidePassword = isPassword && !passwordVisible
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
         singleLine = singleLine,
-        visualTransformation = if (isPassword && !passwordVisible) {
-            androidx.compose.ui.text.input.PasswordVisualTransformation()
+        visualTransformation = if (hidePassword) {
+            PasswordVisualTransformation()
         } else {
-            androidx.compose.ui.text.input.VisualTransformation.None
+            VisualTransformation.None
         },
-        keyboardOptions = keyboardOptions,
-        trailingIcon = if (isPassword) {
-            {
-                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+        keyboardOptions = if (isPassword) {
+            keyboardOptions.copy(keyboardType = KeyboardType.Password)
+        } else {
+            keyboardOptions
+        },
+        trailingIcon = when {
+            isPassword -> {
+                {
                     Icon(
-                        imageVector = if (passwordVisible) MociIcons.EyeOff else MociIcons.Eye,
+                        imageVector = if (passwordVisible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
                         contentDescription = if (passwordVisible) "隐藏密码" else "显示密码",
-                        tint = InkSoft,
+                        tint = Pine,
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clickable { passwordVisible = !passwordVisible },
                     )
                 }
             }
-        } else {
-            null
+            trailingContent != null -> trailingContent
+            else -> null
         },
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -248,6 +263,8 @@ fun MociTextField(
             cursorColor = Pine,
             focusedContainerColor = Paper2,
             unfocusedContainerColor = Paper2,
+            focusedTrailingIconColor = Pine,
+            unfocusedTrailingIconColor = Pine,
         ),
     )
 }

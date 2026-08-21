@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block title %}登录 · 墨词{% endblock %}
 {% block body_class %}auth-page{% endblock %}
-{% block subtitle %}登录后继续记单词{% endblock %}
+{% block subtitle %}管理员后台{% endblock %}
 {% block content %}
 <section class="auth-card">
-  <h1>欢迎回来</h1>
-  <p class="lead">学生背单词，家长查看孩子学习。新账号需管理员同意。</p>
+  <h1>管理员登录</h1>
+  <p class="lead">网页端仅供管理员使用。学生和家长请使用 App 学习与查看进度。</p>
   <form method="post" class="form" autocomplete="on">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label>
@@ -18,6 +18,8 @@
     </label>
     <button class="btn btn-primary btn-block" type="submit">登录</button>
   </form>
-  <p class="auth-switch">还没有账号？<a href="{{ url_for('register') }}">立即注册</a></p>
+  {% if allow_register %}
+  <p class="auth-switch">首次部署？<a href="{{ url_for('register') }}">创建管理员账号</a></p>
+  {% endif %}
 </section>
 {% endblock %}

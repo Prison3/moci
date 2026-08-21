@@ -3,6 +3,16 @@ package com.moci.words.api
 import org.json.JSONArray
 import org.json.JSONObject
 
+private fun JSONObject.optFlag(key: String, default: Boolean = true): Boolean {
+    if (!has(key) || isNull(key)) return default
+    return when (val v = opt(key)) {
+        is Boolean -> v
+        is Number -> v.toInt() != 0
+        is String -> v == "1" || v.equals("true", ignoreCase = true)
+        else -> default
+    }
+}
+
 // 与服务端 /api/v1 响应对应的数据模型。字段名沿用服务端 snake_case 的直接映射。
 
 data class User(
@@ -303,8 +313,8 @@ data class LearnerHome(
             task = TodayTask.from(o.getJSONObject("task")),
             calendar = MonthCal.from(o.getJSONObject("calendar")),
             dayWords = DayWord.listFrom(o.optJSONArray("day_words")),
-            speak = o.optBoolean("speak", true),
-            spell = o.optBoolean("spell", true),
+            speak = o.optFlag("speak", true),
+            spell = o.optFlag("spell", true),
         )
     }
 }
@@ -487,8 +497,8 @@ data class CardsData(
                 cards = (0 until arr.length()).map { Card.from(arr.getJSONObject(it)) },
                 task = TodayTask.from(o.getJSONObject("task")),
                 stats = WordStats.from(o.getJSONObject("stats")),
-                speak = o.optBoolean("speak", true),
-                spell = o.optBoolean("spell", true),
+                speak = o.optFlag("speak", true),
+                spell = o.optFlag("spell", true),
             )
         }
     }

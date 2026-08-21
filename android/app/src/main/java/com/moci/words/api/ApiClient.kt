@@ -2,12 +2,14 @@ package com.moci.words.api
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -30,6 +32,8 @@ class ApiClient(context: Context, private val baseUrl: String) {
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences("moci_session", Context.MODE_PRIVATE)
+    private val accountPrefs: SharedPreferences =
+        context.getSharedPreferences("moci_accounts", Context.MODE_PRIVATE)
 
     var listener: SessionListener? = null
 
@@ -68,7 +72,40 @@ class ApiClient(context: Context, private val baseUrl: String) {
     }
 
     fun clearSession() {
-        prefs.edit().clear().apply()
+        prefs.edit()
+            .remove("session")
+            .remove("csrf")
+            .remove("user")
+            .apply()
+    }
+
+    fun lastUsername(): String = recentUsernames().firstOrNull().orEmpty()
+
+    fun recentUsernames(): List<String> {
+        val raw = accountPrefs.getString("recent_usernames", "[]") ?: "[]"
+        val arr = runCatching { JSONArray(raw) }.getOrNull() ?: JSONArray()
+        val names = (0 until arr.length()).mapNotNull { i ->
+            arr.optString(i).trim().takeIf { it.isNotEmpty() }
+        }.toMutableList()
+        cachedUser?.username?.trim()?.takeIf { it.isNotEmpty() }?.let { current ->
+            if (names.none { it.equals(current, ignoreCase = true) }) {
+                names.add(0, current)
+                accountPrefs.edit().putString("recent_usernames", JSONArray(names).toString()).apply()
+            }
+        }
+        return names
+    }
+
+    fun rememberUsername(name: String) {
+        val n = name.trim()
+        if (n.isEmpty()) return
+        val next = (listOf(n) + recentUsernames().filter { !it.equals(n, ignoreCase = true) }).take(8)
+        accountPrefs.edit().putString("recent_usernames", JSONArray(next).toString()).apply()
+    }
+
+    fun forgetUsername(name: String) {
+        val next = recentUsernames().filter { !it.equals(name, ignoreCase = true) }
+        accountPrefs.edit().putString("recent_usernames", JSONArray(next).toString()).apply()
     }
 
     // ------------------------------------------------------------------
@@ -119,6 +156,7 @@ class ApiClient(context: Context, private val baseUrl: String) {
             if (!resp.isSuccessful || !json.optBoolean("ok")) {
                 val code = json.optString("error", "error")
                 if (resp.code == 401) {
+                    cachedUser?.username?.let { rememberUsername(it) }
                     clearSession()
                     withContext(Dispatchers.Main) { listener?.onUnauthorized() }
                 }
@@ -134,7 +172,11 @@ class ApiClient(context: Context, private val baseUrl: String) {
 
     private fun saveAuth(json: JSONObject) {
         csrfToken = json.optString("csrf_token", csrfToken)
-        json.optJSONObject("user")?.let { cachedUser = User.from(it) }
+        json.optJSONObject("user")?.let {
+            val user = User.from(it)
+            cachedUser = user
+            rememberUsername(user.username)
+        }
     }
 
     // ------------------------------------------------------------------
@@ -146,6 +188,7 @@ class ApiClient(context: Context, private val baseUrl: String) {
             put("password", password)
         })
         saveAuth(json)
+        rememberUsername(username)
         return User.from(json.getJSONObject("user"))
     }
 
@@ -166,6 +209,7 @@ class ApiClient(context: Context, private val baseUrl: String) {
     }
 
     suspend fun logout() {
+        cachedUser?.username?.let { rememberUsername(it) }
         runCatching { execute("POST", "/api/v1/auth/logout") }
         clearSession()
     }
@@ -195,7 +239,15 @@ class ApiClient(context: Context, private val baseUrl: String) {
 
     suspend fun homeAdmin(): AdminHome = AdminHome.from(execute("GET", "/api/v1/home"))
 
-    suspend fun reviewCards(): CardsData = CardsData.from(execute("GET", "/api/v1/review/cards"))
+    suspend fun reviewCards(): CardsData {
+        val json = execute("GET", "/api/v1/review/cards")
+        Log.i(
+            "MociHide",
+            "[HIDE] api /review/cards speak=${json.opt("speak")} spell=${json.opt("spell")} " +
+                "cards=${json.optJSONArray("cards")?.length()}",
+        )
+        return CardsData.from(json)
+    }
 
     suspend fun submitReview(
         wordId: Int,

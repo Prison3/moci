@@ -985,20 +985,34 @@ textarea:focus {
   border-top: 1px dashed var(--line);
 }
 
-.flashcard.is-checking .card-speak,
-.flashcard.is-checking .speak-btn {
-  pointer-events: none;
-  opacity: 0.35;
+.flashcard.is-checking {
+  position: relative;
 }
 
-.flashcard.is-spelling .card-term,
-.flashcard.is-spelling .phonetic,
-.flashcard.is-checking.is-spelling .card-speak,
-.flashcard.is-checking.is-spelling .speak-btn {
+.flashcard.is-checking .card-face,
+.flashcard.is-checking .card-back {
   visibility: hidden;
 }
 
-.flashcard.is-spelling .card-face {
+.flashcard.is-checking .card-speak,
+.flashcard.is-checking .speak-btn {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.flashcard.is-checking::after {
+  content: "卡片已收起，请凭记忆作答";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: inherit;
   pointer-events: none;
 }
 

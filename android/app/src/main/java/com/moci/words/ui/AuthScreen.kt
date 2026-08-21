@@ -1,6 +1,7 @@
 package com.moci.words.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -25,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -43,12 +49,14 @@ fun AuthScreen(onLogin: (User) -> Unit) {
     val scope = rememberCoroutineScope()
 
     var isRegister by remember { mutableStateOf(false) }
-    var username by remember { mutableStateOf("") }
+    var recentAccounts by remember { mutableStateOf(app.api.recentUsernames()) }
+    var username by remember { mutableStateOf(app.api.lastUsername()) }
     var password by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("user") } // user | parent
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var accountMenuOpen by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -86,6 +94,13 @@ fun AuthScreen(onLogin: (User) -> Unit) {
                         .clickable {
                             isRegister = reg
                             error = null
+                            accountMenuOpen = false
+                            if (reg) {
+                                username = ""
+                            } else if (username.isBlank()) {
+                                username = app.api.lastUsername()
+                                recentAccounts = app.api.recentUsernames()
+                            }
                         }
                         .padding(vertical = 9.dp),
                     contentAlignment = Alignment.Center,
@@ -102,7 +117,75 @@ fun AuthScreen(onLogin: (User) -> Unit) {
 
         Spacer(Modifier.height(20.dp))
 
-        MociTextField(username, { username = it }, "用户名")
+        if (isRegister) {
+            MociTextField(username, { username = it }, "用户名")
+        } else {
+            MociTextField(
+                value = username,
+                onValueChange = { username = it },
+                label = "用户名",
+                modifier = Modifier.onFocusChanged { focus ->
+                    if (focus.isFocused && recentAccounts.isNotEmpty()) {
+                        accountMenuOpen = true
+                    }
+                },
+                trailingContent = if (recentAccounts.isEmpty()) {
+                    null
+                } else {
+                    {
+                        Icon(
+                            Icons.Filled.ArrowDropDown,
+                            contentDescription = "选择最近账号",
+                            tint = Pine,
+                            modifier = Modifier.clickable {
+                                accountMenuOpen = !accountMenuOpen
+                            },
+                        )
+                    }
+                },
+            )
+            if (accountMenuOpen && recentAccounts.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Paper2)
+                        .border(1.dp, Line, RoundedCornerShape(12.dp)),
+                ) {
+                    recentAccounts.forEach { name ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    username = name
+                                    accountMenuOpen = false
+                                }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                name,
+                                modifier = Modifier.weight(1f),
+                                fontSize = 15.sp,
+                                color = if (name == username) Pine else Ink,
+                                fontWeight = if (name == username) FontWeight.Bold else FontWeight.Normal,
+                            )
+                            IconButton(
+                                onClick = {
+                                    app.api.forgetUsername(name)
+                                    recentAccounts = app.api.recentUsernames()
+                                    if (username == name) username = app.api.lastUsername()
+                                    if (recentAccounts.isEmpty()) accountMenuOpen = false
+                                },
+                            ) {
+                                Icon(MociIcons.Close, contentDescription = "从列表移除", tint = InkSoft)
+                            }
+                        }
+                    }
+                }
+            }
+        }
         Spacer(Modifier.height(12.dp))
         MociTextField(
             password, { password = it }, "密码",

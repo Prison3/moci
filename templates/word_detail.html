@@ -4,11 +4,6 @@
 {% block subtitle %}词条{% endblock %}
 {% block content %}
 <section class="panel">
-  {% if not is_admin %}
-    <p class="eyebrow">
-      {% if word.status == 'new' %}新词{% elif word.status == 'learning' %}复习{% elif word.status == 'mastered' %}掌握{% endif %}
-    </p>
-  {% endif %}
   <div class="term-row">
     <h1 class="page-title term">{{ word.term }}</h1>
     {{ speak_btn(word.term, '朗读单词') }}
@@ -28,11 +23,7 @@
   {% if word.notes %}<p class="notes">{{ word.notes }}</p>{% endif %}
 
   <div class="hero-actions detail-actions">
-    {% if is_admin %}
-      <a class="btn btn-primary" href="{{ url_for('word_edit', word_id=word.id) }}">编辑词条</a>
-    {% else %}
-      <a class="btn btn-primary" href="{{ url_for('review') }}">去学习</a>
-    {% endif %}
+    <a class="btn btn-primary" href="{{ url_for('word_edit', word_id=word.id) }}">编辑词条</a>
   </div>
 </section>
 {% endblock %}

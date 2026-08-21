@@ -1,24 +1,13 @@
 {% extends "base.html" %}
-{% block title %}注册 · 墨词{% endblock %}
+{% block title %}创建管理员 · 墨词{% endblock %}
 {% block body_class %}auth-page{% endblock %}
-{% block subtitle %}提交后等待管理员同意{% endblock %}
+{% block subtitle %}首次部署{% endblock %}
 {% block content %}
 <section class="auth-card">
-  <h1>创建账号</h1>
-  <p class="lead">学生用来背单词，家长用来查看孩子学习。注册后都需管理员同意。</p>
+  <h1>创建管理员</h1>
+  <p class="lead">第一位注册用户将成为管理员。学生和家长请在 App 中注册。</p>
   <form method="post" class="form" autocomplete="on">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <fieldset class="role-choice">
-      <legend>账号类型</legend>
-      <label class="choice">
-        <input type="radio" name="role" value="user" checked>
-        <span>学生（背单词）</span>
-      </label>
-      <label class="choice">
-        <input type="radio" name="role" value="parent">
-        <span>家长（查看孩子）</span>
-      </label>
-    </fieldset>
     <label>
       <span>用户名</span>
       <input type="text" name="username" required minlength="2" maxlength="20" autocomplete="username">
@@ -31,7 +20,7 @@
       <span>确认密码</span>
       <input type="password" name="confirm" required minlength="6" autocomplete="new-password">
     </label>
-    <button class="btn btn-primary btn-block" type="submit">提交注册</button>
+    <button class="btn btn-primary btn-block" type="submit">创建管理员</button>
   </form>
   <p class="auth-switch">已有账号？<a href="{{ url_for('login') }}">去登录</a></p>
 </section>

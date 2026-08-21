@@ -1,12 +1,16 @@
 package com.moci.words.ui
 
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
+import android.speech.RecognizerIntent
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,17 +20,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +58,12 @@ import com.moci.words.api.CardsData
 import kotlinx.coroutines.launch
 
 private enum class CheckStage { None, Read, Spell }
+
+private const val HIDE_TAG = "MociHide"
+
+private fun hideLog(msg: String) {
+    Log.i(HIDE_TAG, "[HIDE] $msg")
+}
 
 /** 学习页：闪卡 + 「学会」前的朗读 / 默写检查。逻辑对齐网页版 app.js。 */
 @Composable
@@ -82,6 +95,10 @@ fun StudyScreen(onExit: () -> Unit) {
                 index = 0
                 finished = 0
                 stage = CheckStage.None
+                hideLog(
+                    "cards loaded n=${data?.cards?.size} speak=${data?.speak} spell=${data?.spell} " +
+                        "first=${data?.cards?.firstOrNull()?.term}",
+                )
             } catch (e: ApiException) {
                 loadError = e.message
             } catch (e: Exception) {
@@ -100,6 +117,7 @@ fun StudyScreen(onExit: () -> Unit) {
     val needSpell = data?.spell == true
 
     fun resetCheck() {
+        hideLog("resetCheck term=${card?.term} prevStage=$stage")
         app.speech.cancel()
         listening = false
         spokenText = ""
@@ -135,55 +153,121 @@ fun StudyScreen(onExit: () -> Unit) {
         }
     }
 
-    val speechCallback = remember(card?.id) {
-        object : MociSpeech.Callback {
-            override fun onStart() {
-                listening = true
-                readError = null
+    fun onSpoken(term: String, cardId: Int, alternatives: List<String>) {
+        listening = false
+        val hit = alternatives.firstOrNull { spokenMatches(it, term) }
+        if (hit == null) {
+            val heard = alternatives.firstOrNull().orEmpty()
+            spokenText = ""
+            readError = if (heard.isBlank()) {
+                "没听清或读得不对，请再试一次。"
+            } else {
+                "听成了「$heard」，请点话筒再读一次。"
             }
-
-            override fun onResults(alternatives: List<String>) {
-                val term = card?.term ?: return
-                val hit = alternatives.firstOrNull { spokenMatches(it, term) }
-                if (hit != null) {
-                    spokenText = hit
-                    if (needSpell) {
-                        stage = CheckStage.Spell
-                    } else {
-                        submit(card?.id ?: return, "easy", spoken = hit)
-                    }
-                } else {
-                    readError = "没听清或读得不对，请再试一次。"
-                }
-            }
-
-            override fun onError(code: String) {
-                readError = when (code) {
-                    "not-allowed" -> "没有麦克风权限，请在系统设置中允许。"
-                    "service-not-available" -> "设备没有可用的语音识别服务。"
-                    "no-speech" -> "没有听到声音，请再试一次。"
-                    else -> "没听清或读得不对，请再试一次。"
-                }
-            }
-
-            override fun onEnd() {
-                listening = false
-            }
+            return
         }
+        spokenText = hit
+        readError = null
+        if (needSpell) {
+            hideLog("read OK, hide stays, stage -> Spell term=$term")
+            context.toast("朗读正确")
+            stage = CheckStage.Spell
+        } else {
+            hideLog("read OK, spell off, submit without Spell screen term=$term")
+            submit(cardId, "easy", spoken = hit)
+        }
+    }
+
+    fun speechErrorMessage(code: String): String = when (code) {
+        "not-allowed" -> "没有麦克风权限，请在系统设置中允许。"
+        "service-not-available" -> "设备没有可用的语音识别，请安装或启用语音输入。"
+        "no-speech" -> "没有听到声音，请再试一次。"
+        "no-match" -> "没听清或读得不对，请再试一次。"
+        "network" -> "语音识别需要网络，请检查连接后重试。"
+        "busy" -> "识别器正忙，请稍后再试。"
+        "aborted" -> "已取消。"
+        else -> "没听清或读得不对，请再试一次。"
+    }
+
+    val speechIntentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        listening = false
+        val current = card ?: return@rememberLauncherForActivityResult
+        if (result.resultCode == Activity.RESULT_CANCELED) return@rememberLauncherForActivityResult
+        val texts = result.data
+            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            .orEmpty()
+        if (result.resultCode != Activity.RESULT_OK || texts.isEmpty()) {
+            readError = "没听清或读得不对，请再试一次。"
+            return@rememberLauncherForActivityResult
+        }
+        onSpoken(current.term, current.id, texts)
+    }
+
+    fun launchSpeechIntent() {
+        listening = true
+        readError = null
+        runCatching { speechIntentLauncher.launch(app.speech.recognizeIntent()) }
+            .onFailure {
+                listening = false
+                readError = "设备没有可用的语音识别，请安装或启用语音输入。"
+            }
+    }
+
+    fun beginInAppSpeech(current: Card) {
+        app.speech.start(
+            context = context,
+            callback = object : MociSpeech.Callback {
+                private var fallbackToIntent = false
+
+                override fun onStart() {
+                    listening = true
+                    readError = null
+                }
+
+                override fun onResults(alternatives: List<String>) {
+                    onSpoken(current.term, current.id, alternatives)
+                }
+
+                override fun onError(code: String) {
+                    if (code == "aborted") {
+                        listening = false
+                        return
+                    }
+                    if (code == "service-not-available") {
+                        fallbackToIntent = true
+                        launchSpeechIntent()
+                        return
+                    }
+                    listening = false
+                    readError = speechErrorMessage(code)
+                }
+
+                override fun onEnd() {
+                    if (!fallbackToIntent) listening = false
+                }
+            },
+        )
     }
 
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (granted) {
-            app.speech.start(callback = speechCallback)
-        } else {
+        val current = card
+        if (!granted || current == null) {
+            listening = false
             readError = "没有麦克风权限，无法朗读检查。"
+            return@rememberLauncherForActivityResult
         }
+        if (app.speech.isAvailable(context)) beginInAppSpeech(current) else launchSpeechIntent()
     }
 
     fun startListening() {
+        val current = card ?: return
         app.tts.stop()
+        readError = null
+        listening = true
         val granted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.RECORD_AUDIO,
         ) == PackageManager.PERMISSION_GRANTED
@@ -191,21 +275,27 @@ fun StudyScreen(onExit: () -> Unit) {
             micPermission.launch(Manifest.permission.RECORD_AUDIO)
             return
         }
-        if (!app.speech.available) {
-            readError = "设备没有可用的语音识别服务。"
-            return
+        if (app.speech.isAvailable(context)) {
+            beginInAppSpeech(current)
+        } else {
+            launchSpeechIntent()
         }
-        app.speech.start(callback = speechCallback)
     }
 
     fun beginKnowCheck() {
         val c = card ?: return
+        hideLog(
+            "tap 学会 id=${c.id} term=${c.term} needSpeak=$needSpeak needSpell=$needSpell stage=$stage",
+        )
         if (!needSpeak && !needSpell) {
+            hideLog("skip hide: speak/spell both false, submit immediately")
             submit(c.id, "easy")
             return
         }
         app.tts.stop()
-        stage = if (needSpeak) CheckStage.Read else CheckStage.Spell
+        val next = if (needSpeak) CheckStage.Read else CheckStage.Spell
+        hideLog("enter $next, FlashCard should unmount")
+        stage = next
     }
 
     Column(
@@ -213,7 +303,6 @@ fun StudyScreen(onExit: () -> Unit) {
             .fillMaxSize()
             .padding(horizontal = 16.dp),
     ) {
-        // 顶部：返回 + 进度
         Row(
             Modifier
                 .fillMaxWidth()
@@ -272,63 +361,98 @@ fun StudyScreen(onExit: () -> Unit) {
                 MociButton("回到首页", onClick = onExit)
             }
             else -> {
-                FlashCard(card, Modifier.weight(1f))
-
+                val hideView = if (stage == CheckStage.None) "FLASH" else "HIDDEN"
+                val hideLine =
+                    "[HIDE] stage=${stage.name} speak=${if (needSpeak) 1 else 0} " +
+                        "spell=${if (needSpell) 1 else 0} view=$hideView term=${card.term}"
+                LaunchedEffect(stage, needSpeak, needSpell, card.id, hideView) {
+                    hideLog("compose $hideLine")
+                }
+                Text(
+                    hideLine,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Cinnabar,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp),
+                )
                 when (stage) {
-                    CheckStage.None -> Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        MociButton(
-                            "不认识",
-                            kind = BtnKind.Danger,
-                            modifier = Modifier.weight(1f),
-                            enabled = !submitting,
+                    CheckStage.None -> {
+                        FlashCard(card, Modifier.weight(1f))
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            submit(card.id, "again")
-                        }
-                        MociButton(
-                            "学会",
-                            modifier = Modifier.weight(1f),
-                            enabled = !submitting,
-                        ) {
-                            beginKnowCheck()
+                            MociButton(
+                                "不认识",
+                                kind = BtnKind.Danger,
+                                modifier = Modifier.weight(1f),
+                                enabled = !submitting,
+                            ) {
+                                submit(card.id, "again")
+                            }
+                            MociButton(
+                                "学会",
+                                modifier = Modifier.weight(1f),
+                                enabled = !submitting,
+                            ) {
+                                beginKnowCheck()
+                            }
                         }
                     }
 
                     CheckStage.Read -> Column(
                         Modifier
+                            .weight(1f)
                             .fillMaxWidth()
-                            .padding(vertical = 14.dp),
+                            .padding(vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
+                        HiddenWordCard(Modifier.weight(1f))
+                        Spacer(Modifier.height(16.dp))
                         Text(
-                            "请大声读出这个单词",
+                            "请点话筒，大声读出刚才的单词",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             color = Ink,
                         )
-                        Spacer(Modifier.height(10.dp))
-                        MociButton(
-                            if (listening) "正在听…（点击停止）" else "开始朗读",
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !submitting,
+                        Spacer(Modifier.height(16.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(80.dp)
+                                .clip(CircleShape)
+                                .background(if (listening) Cinnabar else Pine)
+                                .clickable(enabled = !submitting) {
+                                    if (listening) {
+                                        app.speech.cancel()
+                                        listening = false
+                                    } else {
+                                        startListening()
+                                    }
+                                },
+                            contentAlignment = Alignment.Center,
                         ) {
-                            if (listening) {
-                                app.speech.cancel()
-                                listening = false
-                            } else {
-                                startListening()
-                            }
+                            Icon(
+                                MociIcons.Mic,
+                                contentDescription = if (listening) "停止录音" else "开始录音",
+                                tint = Paper2,
+                                modifier = Modifier.size(36.dp),
+                            )
                         }
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(12.dp))
                         Text(
-                            readError ?: "点击后对着麦克风读英文。",
+                            when {
+                                readError != null -> readError!!
+                                listening -> "正在听，请读英文…"
+                                else -> "卡片已收起。点话筒录音，读对后才能默写。"
+                            },
                             fontSize = 13.sp,
                             color = if (readError != null) Cinnabar else InkSoft,
                         )
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(14.dp))
                         MociButton(
                             "返回",
                             kind = BtnKind.Ghost,
@@ -338,9 +462,12 @@ fun StudyScreen(onExit: () -> Unit) {
 
                     CheckStage.Spell -> Column(
                         Modifier
+                            .weight(1f)
                             .fillMaxWidth()
-                            .padding(vertical = 14.dp),
+                            .padding(vertical = 8.dp),
                     ) {
+                        HiddenWordCard(Modifier.weight(1f))
+                        Spacer(Modifier.height(12.dp))
                         Text(
                             if (needSpeak) "朗读正确，请默写完整单词" else "请默写完整单词",
                             fontSize = 16.sp,
@@ -373,7 +500,7 @@ fun StudyScreen(onExit: () -> Unit) {
                         ) {
                             if (needSpeak && spokenText.isEmpty()) {
                                 stage = CheckStage.Read
-                                readError = "请先正确朗读这个单词。"
+                                readError = "请先点话筒，正确读出这个单词。"
                                 return@MociButton
                             }
                             submit(
@@ -398,6 +525,7 @@ fun StudyScreen(onExit: () -> Unit) {
 
 @Composable
 private fun FlashCard(card: Card, modifier: Modifier = Modifier) {
+    SideEffect { hideLog("FlashCard showing term=${card.term} meaning=${card.meaning}") }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -442,7 +570,44 @@ private fun FlashCard(card: Card, modifier: Modifier = Modifier) {
     }
 }
 
-// 与网页版 app.js 一致的口语匹配：规范化后整体相等或连续子串匹配
+@Composable
+private fun HiddenWordCard(modifier: Modifier = Modifier) {
+    SideEffect { hideLog("HiddenWordCard mounted, no term on screen") }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Paper2)
+            .border(1.dp, Line, RoundedCornerShape(18.dp))
+            .padding(20.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        MociBadge("默写中", Pine)
+        Spacer(Modifier.height(20.dp))
+        FrostBar(Modifier.fillMaxWidth(0.55f).height(36.dp))
+        Spacer(Modifier.height(12.dp))
+        FrostBar(Modifier.fillMaxWidth(0.3f).height(16.dp))
+        Spacer(Modifier.height(20.dp))
+        FrostBar(Modifier.fillMaxWidth(0.85f).height(18.dp))
+        Spacer(Modifier.height(10.dp))
+        FrostBar(Modifier.fillMaxWidth().height(14.dp))
+        Spacer(Modifier.height(8.dp))
+        FrostBar(Modifier.fillMaxWidth(0.9f).height(14.dp))
+        Spacer(Modifier.height(18.dp))
+        Text("单词信息已隐藏，请凭记忆默写", fontSize = 14.sp, color = InkSoft)
+    }
+}
+
+@Composable
+private fun FrostBar(modifier: Modifier) {
+    Box(
+        modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Line),
+    )
+}
+
 private fun normalizeSpoken(text: String): String =
     text.trim().lowercase()
         .replace(Regex("[^a-z0-9\\s]"), " ")

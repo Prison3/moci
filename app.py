@@ -153,7 +153,7 @@ def login_required(view):
     return wrapped
 
 
-def learner_required(view):
+def admin_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         if not session.get("user_id"):
@@ -163,26 +163,10 @@ def learner_required(view):
         if not user:
             session.clear()
             return redirect(url_for("login"))
-        if not is_approved(user):
-            _kick_unapproved(user)
+        if not is_admin(user):
+            session.clear()
+            flash("网页端仅供管理员使用，学生和家长请使用 App。", "error")
             return redirect(url_for("login"))
-        if is_admin(user) or is_parent(user):
-            flash("当前账号无需背单词。", "ok")
-            return redirect(url_for("home"))
-        return view(*args, **kwargs)
-
-    return wrapped
-
-
-def admin_required(view):
-    @wraps(view)
-    def wrapped(*args, **kwargs):
-        if not session.get("user_id"):
-            next_url = request.path if request.method == "GET" else url_for("home")
-            return redirect(url_for("login", next=next_url))
-        if not is_admin(current_user()):
-            flash("只有管理员可以执行此操作。", "error")
-            return redirect(url_for("home"))
         return view(*args, **kwargs)
 
     return wrapped
@@ -889,23 +873,8 @@ def learning_report(day: str, allowed_ids: list[int] | None = None, detail_id: i
     }
 
 
-def parent_required(view):
-    @wraps(view)
-    def wrapped(*args, **kwargs):
-        if not session.get("user_id"):
-            next_url = request.path if request.method == "GET" else url_for("home")
-            return redirect(url_for("login", next=next_url))
-        user = current_user()
-        if not user or not is_approved(user):
-            if user:
-                _kick_unapproved(user)
-            return redirect(url_for("login"))
-        if not is_parent(user):
-            flash("只有家长可以查看孩子的学习情况。", "error")
-            return redirect(url_for("home"))
-        return view(*args, **kwargs)
-
-    return wrapped
+def _user_count() -> int:
+    return get_db().execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
 
 
 @app.before_request
@@ -914,92 +883,32 @@ def ensure_db():
 
 
 @app.route("/")
-@login_required
+@admin_required
 def home():
-    user = current_user()
     db = get_db()
-    if is_admin(user):
-        pending = db.execute(
-            """
-            SELECT id, username, role, created_at FROM users
-            WHERE role != ? AND status = ?
-            ORDER BY id ASC
-            """,
-            (ROLE_ADMIN, STATUS_PENDING),
-        ).fetchall()
-        recent = db.execute(
-            "SELECT * FROM words ORDER BY created_at DESC LIMIT 6"
-        ).fetchall()
-        return render_template(
-            "home.html",
-            stats={"total": db.execute("SELECT COUNT(*) AS n FROM words").fetchone()["n"]},
-            recent=recent,
-            pending=pending,
-            pending_count=len(pending),
-            user_count=db.execute(
-                "SELECT COUNT(*) AS n FROM users WHERE role = ?", (ROLE_USER,)
-            ).fetchone()["n"],
-            parent_count=db.execute(
-                "SELECT COUNT(*) AS n FROM users WHERE role = ?", (ROLE_PARENT,)
-            ).fetchone()["n"],
-        )
-    if is_parent(user):
-        kids = children_of(user["id"])
-        day = parse_day(request.args.get("date"))
-        raw = (request.args.get("user_id") or "").strip()
-        detail_id = int(raw) if raw.isdigit() else None
-        kind = parse_kind(request.args.get("kind")) or KIND_NEW
-        allowed = [kid["id"] for kid in kids]
-        if allowed:
-            if detail_id not in allowed:
-                detail_id = allowed[0]
-            if str(request.args.get("user_id") or "") != str(detail_id) or parse_kind(
-                request.args.get("kind")
-            ) != kind:
-                return redirect(
-                    url_for("home", date=day, user_id=detail_id, kind=kind)
-                )
-        scope = [detail_id] if detail_id else allowed
-        report = learning_report(day, allowed_ids=scope, detail_id=detail_id)
-        if kind:
-            report["logs"] = collect_day_words(
-                [detail_id] if detail_id else allowed, day, kind
-            )
-        calendar = month_learning_calendar(
-            scope, day, child_count=1 if detail_id else len(allowed)
-        )
-        child_stats = []
-        for kid in kids:
-            ws = word_stats(kid["id"])
-            task = today_task(kid["id"], kid)
-            child_stats.append({"user": kid, "stats": ws, "task": task})
-        if kind == KIND_NEW:
-            empty_text = "这一天还没有新词学习记录。"
-        elif kind == KIND_REVIEW:
-            empty_text = "这一天还没有复习记录。"
-        else:
-            empty_text = "这一天还没有学习记录。"
-        return render_template(
-            "parent_home.html",
-            children=child_stats,
-            day=day,
-            calendar=calendar,
-            learning_endpoint="home",
-            selected_kind=kind,
-            kind_label=KIND_LABELS.get(kind or "", ""),
-            empty_text=empty_text,
-            **report,
-        )
-    stats = word_stats(user["id"])
-    task = today_task(user["id"], user)
-    calendar = month_study_calendar(user["id"], user)
-    day_words = day_study_words(user["id"], calendar["today"])
+    pending = db.execute(
+        """
+        SELECT id, username, role, created_at FROM users
+        WHERE role != ? AND status = ?
+        ORDER BY id ASC
+        """,
+        (ROLE_ADMIN, STATUS_PENDING),
+    ).fetchall()
+    recent = db.execute(
+        "SELECT * FROM words ORDER BY created_at DESC LIMIT 6"
+    ).fetchall()
     return render_template(
         "home.html",
-        stats=stats,
-        task=task,
-        calendar=calendar,
-        day_words=day_words,
+        stats={"total": db.execute("SELECT COUNT(*) AS n FROM words").fetchone()["n"]},
+        recent=recent,
+        pending=pending,
+        pending_count=len(pending),
+        user_count=db.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE role = ?", (ROLE_USER,)
+        ).fetchone()["n"],
+        parent_count=db.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE role = ?", (ROLE_PARENT,)
+        ).fetchone()["n"],
     )
 
 
@@ -1007,6 +916,9 @@ def home():
 def register():
     if session.get("user_id"):
         return redirect(url_for("home"))
+    if _user_count() > 0:
+        flash("学生和家长请在 App 中注册，网页端仅供管理员登录。", "error")
+        return redirect(url_for("login"))
     if request.method == "POST":
         if not validate_csrf():
             flash("请求已过期，请重试。", "error")
@@ -1014,9 +926,6 @@ def register():
         username = (request.form.get("username") or "").strip()
         password = request.form.get("password") or ""
         confirm = request.form.get("confirm") or ""
-        chosen_role = (request.form.get("role") or ROLE_USER).strip()
-        if chosen_role not in {ROLE_USER, ROLE_PARENT}:
-            chosen_role = ROLE_USER
         if not USERNAME_RE.match(username):
             flash("用户名需为 2–20 位字母、数字、下划线或中文。", "error")
         elif len(password) < 6:
@@ -1031,9 +940,6 @@ def register():
             if exists:
                 flash("该用户名已被占用。", "error")
             else:
-                user_n = db.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
-                role = ROLE_ADMIN if user_n == 0 else chosen_role
-                status = STATUS_APPROVED if role == ROLE_ADMIN else STATUS_PENDING
                 db.execute(
                     """
                     INSERT INTO users (username, password_hash, role, status, created_at)
@@ -1042,32 +948,26 @@ def register():
                     (
                         username,
                         make_password_hash(password),
-                        role,
-                        status,
+                        ROLE_ADMIN,
+                        STATUS_APPROVED,
                         now_iso(),
                     ),
                 )
                 db.commit()
-                if role == ROLE_ADMIN:
-                    user = db.execute(
-                        "SELECT * FROM users WHERE username = ?", (username,)
-                    ).fetchone()
-                    session.clear()
-                    session["user_id"] = user["id"]
-                    session["_csrf"] = secrets.token_hex(16)
-                    flash("注册成功。你是第一位用户，已设为管理员。", "ok")
-                    return redirect(url_for("home"))
-                if chosen_role == ROLE_PARENT:
-                    flash("家长账号已提交，请等待管理员同意后再登录。", "ok")
-                else:
-                    flash("注册已提交，请等待管理员同意后再登录。", "ok")
-                return redirect(url_for("login"))
+                user = db.execute(
+                    "SELECT * FROM users WHERE username = ?", (username,)
+                ).fetchone()
+                session.clear()
+                session["user_id"] = user["id"]
+                session["_csrf"] = secrets.token_hex(16)
+                flash("注册成功。你是第一位用户，已设为管理员。", "ok")
+                return redirect(url_for("home"))
     return render_template("register.html")
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    if session.get("user_id"):
+    if session.get("user_id") and is_admin(current_user()):
         return redirect(url_for("home"))
     if request.method == "POST":
         if not validate_csrf():
@@ -1082,6 +982,9 @@ def login():
         )
         if not user or not check_password_hash(user["password_hash"], password):
             flash("用户名或密码不正确。", "error")
+        elif not is_admin(user):
+            session.clear()
+            flash("网页端仅供管理员使用，学生和家长请使用 App。", "error")
         elif not is_approved(user):
             _kick_unapproved(user)
         else:
@@ -1089,10 +992,10 @@ def login():
             session["user_id"] = user["id"]
             session["_csrf"] = secrets.token_hex(16)
             nxt = request.args.get("next") or url_for("home")
-            if not nxt.startswith("/"):
+            if not nxt.startswith("/") or nxt.startswith("//"):
                 nxt = url_for("home")
             return redirect(nxt)
-    return render_template("login.html")
+    return render_template("login.html", allow_register=_user_count() == 0)
 
 
 @app.route("/logout")
@@ -1104,11 +1007,8 @@ def logout():
 
 
 @app.route("/words")
-@login_required
+@admin_required
 def words():
-    user = current_user()
-    if not is_admin(user):
-        return redirect(url_for("home"))
     q = (request.args.get("q") or "").strip()
     items = list_library(q=q)
     total = get_db().execute("SELECT COUNT(*) AS n FROM words").fetchone()["n"]
@@ -1168,11 +1068,8 @@ def word_new():
 
 
 @app.route("/words/<int:word_id>")
-@login_required
+@admin_required
 def word_detail(word_id: int):
-    user = current_user()
-    if not is_admin(user):
-        return redirect(url_for("home"))
     word = get_db().execute("SELECT * FROM words WHERE id = ?", (word_id,)).fetchone()
     if not word:
         flash("找不到这个单词。", "error")
@@ -1290,239 +1187,10 @@ def word_quick():
     return redirect(url_for("words"))
 
 
-@app.route("/review")
-@learner_required
-def review():
-    user = current_user()
-    task = today_task(user["id"])
-    done_ids = today_reviewed_word_ids(user["id"])
-    new_cards = due_cards(
-        user["id"],
-        limit=task["new"]["remaining"],
-        exclude_ids=done_ids,
-        kind=KIND_NEW,
-    )
-    review_cards = due_cards(
-        user["id"],
-        limit=task["review"]["remaining"],
-        exclude_ids=done_ids,
-        kind=KIND_REVIEW,
-    )
-    cards = new_cards + review_cards
-    stats = word_stats(user["id"])
-    checks = know_checks_of(user)
-    return render_template(
-        "review.html", cards=cards, stats=stats, task=task, **checks
-    )
-
-
-@app.route("/api/review/<int:word_id>", methods=["POST"])
-@learner_required
-def api_review(word_id: int):
-    if not validate_csrf():
-        return jsonify({"ok": False, "error": "csrf"}), 400
-    payload = request.get_json(silent=True) or {}
-    rating = payload.get("rating")
-    if rating not in {"again", "easy"}:
-        return jsonify({"ok": False, "error": "invalid rating"}), 400
-    user = current_user()
-    word = get_db().execute(
-        "SELECT id, term FROM words WHERE id = ?", (word_id,)
-    ).fetchone()
-    if not word:
-        return jsonify({"ok": False, "error": "not found"}), 404
-    if rating == "easy":
-        checks = know_checks_of(user)
-        if checks["speak"]:
-            spoken = payload.get("spoken")
-            if not isinstance(spoken, str) or not spoken_matches(spoken, word["term"]):
-                return jsonify({"ok": False, "error": "spoken"}), 400
-        if checks["spell"]:
-            spelling = payload.get("spelling")
-            if not isinstance(spelling, str) or not spelling.strip():
-                return jsonify({"ok": False, "error": "spelling"}), 400
-            if normalize_spelling(spelling) != normalize_spelling(word["term"]):
-                return jsonify({"ok": False, "error": "spelling"}), 400
-    progress = fetch_progress(user["id"], word_id)
-    kind = KIND_REVIEW if progress and progress["status"] == "learning" else KIND_NEW
-    patch = schedule_review(progress, rating)
-    get_db().execute(
-        """
-        INSERT INTO progress (
-            user_id, word_id, status, review_count, correct_streak,
-            last_reviewed, next_review, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT (user_id, word_id) DO UPDATE SET
-            status=excluded.status,
-            review_count=excluded.review_count,
-            correct_streak=excluded.correct_streak,
-            last_reviewed=excluded.last_reviewed,
-            next_review=excluded.next_review,
-            updated_at=excluded.updated_at
-        """,
-        (
-            user["id"],
-            word_id,
-            patch["status"],
-            patch["review_count"],
-            patch["correct_streak"],
-            patch["last_reviewed"],
-            patch["next_review"],
-            patch["updated_at"],
-        ),
-    )
-    get_db().execute(
-        """
-        INSERT INTO review_logs (user_id, word_id, rating, kind, created_at)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (user["id"], word_id, rating, kind, patch["updated_at"]),
-    )
-    get_db().commit()
-    remaining = (
-        get_db()
-        .execute(
-            """
-            SELECT COUNT(*) AS n
-            FROM words w
-            LEFT JOIN progress p ON p.word_id = w.id AND p.user_id = ?
-            WHERE COALESCE(p.status, 'new') = 'new'
-              AND (p.next_review IS NULL OR p.next_review <= ?)
-            """,
-            (user["id"], now_iso()),
-        )
-        .fetchone()["n"]
-    )
-    return jsonify({"ok": True, "remaining": remaining, **patch})
-
-
-@app.route("/api/study-day")
-@learner_required
-def api_study_day():
-    day = parse_day(request.args.get("date"))
-    words = day_study_words(current_user()["id"], day)
-    return jsonify({"ok": True, "date": day, "words": words})
-
-
-@app.route("/me", methods=["GET", "POST"])
-@login_required
+@app.route("/me")
+@admin_required
 def profile():
-    user = current_user()
-    stats = word_stats(user["id"]) if is_learner(user) else None
-    kids = children_of(user["id"]) if is_parent(user) else []
-    parents = parents_of(user["id"]) if is_learner(user) else []
-    task_children = []
-    selected = None
-    if is_parent(user):
-        allowed = [kid["id"] for kid in kids]
-        raw = (request.values.get("user_id") or "").strip()
-        detail_id = int(raw) if raw.isdigit() else None
-        if allowed:
-            if detail_id not in allowed:
-                detail_id = allowed[0]
-            if request.method == "GET" and str(request.args.get("user_id") or "") != str(
-                detail_id
-            ):
-                return redirect(url_for("profile", user_id=detail_id))
-        if request.method == "POST":
-            if not validate_csrf():
-                flash("请求已过期，请重试。", "error")
-                return redirect(url_for("profile", user_id=detail_id))
-            if not detail_id:
-                flash("还没有可设置的孩子。", "error")
-                return redirect(url_for("profile"))
-            raw_new = request.form.get(f"daily_words_{detail_id}")
-            raw_review = request.form.get(f"daily_review_{detail_id}")
-            new_value = clamp_daily_words(raw_new, DEFAULT_DAILY_WORDS)
-            review_value = clamp_daily_words(raw_review, DEFAULT_DAILY_REVIEW)
-            know_speak = 1 if request.form.get(f"know_speak_{detail_id}") == "1" else 0
-            know_spell = 1 if request.form.get(f"know_spell_{detail_id}") == "1" else 0
-            get_db().execute(
-                """
-                UPDATE users SET daily_words = ?, daily_review = ?,
-                       know_speak = ?, know_spell = ?
-                WHERE id = ? AND role = ?
-                """,
-                (
-                    new_value,
-                    review_value,
-                    know_speak,
-                    know_spell,
-                    detail_id,
-                    ROLE_USER,
-                ),
-            )
-            get_db().commit()
-            flash("已保存学习设置。", "ok")
-            return redirect(url_for("profile", user_id=detail_id))
-        for kid in kids:
-            item = {"user": kid, "task": today_task(kid["id"], kid)}
-            task_children.append(item)
-            if detail_id and kid["id"] == detail_id:
-                selected = item
-    elif request.method == "POST":
-        return redirect(url_for("profile"))
-    return render_template(
-        "profile.html",
-        stats=stats,
-        children=kids,
-        parents=parents,
-        task_children=task_children,
-        selected=selected,
-    )
-
-
-@app.route("/tasks")
-@parent_required
-def parent_tasks():
-    kwargs = {}
-    raw = (request.args.get("user_id") or "").strip()
-    if raw.isdigit():
-        kwargs["user_id"] = int(raw)
-    return redirect(url_for("profile", **kwargs))
-
-
-@app.route("/me/switch", methods=["POST"])
-@login_required
-def switch_account():
-    if not validate_csrf():
-        flash("请求已过期，请重试。", "error")
-        return redirect(url_for("profile"))
-    user = current_user()
-    try:
-        target_id = int(request.form.get("target_id") or "0")
-    except ValueError:
-        target_id = 0
-    target = get_db().execute("SELECT * FROM users WHERE id = ?", (target_id,)).fetchone()
-    if not target or not is_approved(target):
-        flash("找不到可切换的账号。", "error")
-        return redirect(url_for("profile"))
-    if target["id"] == user["id"]:
-        return redirect(url_for("home"))
-
-    if is_parent(user) and is_learner(target):
-        if target["id"] not in child_ids_of(user["id"]):
-            flash("只能切换到自己的孩子。", "error")
-            return redirect(url_for("profile"))
-        _switch_session(target)
-        flash(f"已切换到 {target['username']}。", "ok")
-        return redirect(url_for("home"))
-
-    if is_learner(user) and is_parent(target):
-        linked = {row["id"] for row in parents_of(user["id"])}
-        if target["id"] not in linked:
-            flash("只能切换到绑定的家长。", "error")
-            return redirect(url_for("profile"))
-        password = request.form.get("password") or ""
-        if not check_password_hash(target["password_hash"], password):
-            flash("家长密码不正确。", "error")
-            return redirect(url_for("profile"))
-        _switch_session(target)
-        flash(f"已切换到 {target['username']}。", "ok")
-        return redirect(url_for("home"))
-
-    flash("不能切换到该账号。", "error")
-    return redirect(url_for("profile"))
+    return render_template("profile.html")
 
 
 @app.route("/admin/users")
