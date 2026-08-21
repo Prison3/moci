@@ -8,13 +8,12 @@ venv/
 *.egg-info/
 .DS_Store
 
-# Android
-android/.gradle/
-android/.kotlin/
-android/build/
-android/app/build/
-android/local.properties
-android/.idea/
+# Android client
+client/.gradle/
+client/.kotlin/
+client/build/
+client/app/build/
+client/local.properties
+client/.idea/
 *.apk
 *.keystore
-
