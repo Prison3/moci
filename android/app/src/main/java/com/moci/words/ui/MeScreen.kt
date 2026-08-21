@@ -81,7 +81,7 @@ fun MeScreen(
                         StatGrid(
                             listOf(
                                 "${stats.total}" to "单词",
-                                "${stats.learning}" to "复习",
+                                "${stats.learning}" to "了解",
                                 "${stats.mastered}" to "掌握",
                             )
                         )

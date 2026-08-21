@@ -62,7 +62,18 @@ private fun LearnerHomeScreen(onStartStudy: () -> Unit) {
     val data = state.data
     var selectedDate by remember { mutableStateOf<String?>(null) }
     var dayWords by remember { mutableStateOf<List<DayWord>?>(null) }
+    var wordFilter by remember { mutableStateOf<Pair<String, String>?>(null) }
     val scope = rememberCoroutineScope()
+
+    val filter = wordFilter
+    if (filter != null) {
+        ProgressWordsScreen(
+            status = filter.first,
+            title = filter.second,
+            onBack = { wordFilter = null },
+        )
+        return
+    }
 
     when {
         state.loading && data == null -> LoadingBox()
@@ -141,9 +152,17 @@ private fun LearnerHomeScreen(onStartStudy: () -> Unit) {
                     listOf(
                         "${data.stats.total}" to "单词",
                         "${data.stats.newCount}" to "新词",
-                        "${data.stats.learning}" to "复习",
+                        "${data.stats.learning}" to "了解",
                         "${data.stats.mastered}" to "掌握",
-                    )
+                    ),
+                    onItemClick = { index ->
+                        wordFilter = when (index) {
+                            0 -> "" to "全部单词"
+                            1 -> "new" to "新词"
+                            2 -> "learning" to "了解"
+                            else -> "mastered" to "掌握"
+                        }
+                    },
                 )
                 Spacer(Modifier.height(16.dp))
             }
@@ -314,7 +333,7 @@ private fun ChildCard(child: com.moci.words.api.ChildInfo, selected: Boolean) {
             color = InkSoft,
         )
         child.stats?.let {
-            Text("复习 ${it.learning} · 掌握 ${it.mastered}", fontSize = 12.sp, color = InkSoft)
+            Text("了解 ${it.learning} · 掌握 ${it.mastered}", fontSize = 12.sp, color = InkSoft)
         }
     }
 }

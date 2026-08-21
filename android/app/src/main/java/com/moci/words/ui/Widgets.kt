@@ -295,20 +295,27 @@ fun SpeakIconButton(text: String, modifier: Modifier = Modifier, size: Int = 22)
 // 统计 / 空态 / 加载
 
 @Composable
-fun StatGrid(items: List<Pair<String, String>>) {
+fun StatGrid(
+    items: List<Pair<String, String>>,
+    onItemClick: ((Int) -> Unit)? = null,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        items.forEach { (value, label) ->
+        items.forEachIndexed { index, (value, label) ->
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(14.dp))
                     .background(Paper2)
                     .border(1.dp, Line, RoundedCornerShape(14.dp))
+                    .then(
+                        if (onItemClick != null) Modifier.clickable { onItemClick(index) }
+                        else Modifier,
+                    )
                     .padding(vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -563,7 +570,7 @@ fun DayWordItem(w: DayWord) {
             )
             MociBadge(
                 when (w.status) {
-                    "learning" -> "现为复习"
+                    "learning" -> "现为了解"
                     "mastered" -> "现为掌握"
                     else -> "现为新词"
                 },

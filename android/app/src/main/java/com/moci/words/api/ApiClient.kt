@@ -302,6 +302,19 @@ class ApiClient(context: Context, private val baseUrl: String) {
         return (0 until arr.length()).map { Word.from(arr.getJSONObject(it)) } to json.optInt("total")
     }
 
+    /** 学生按进度查看自己的单词：status 为空即全部。 */
+    suspend fun myWords(status: String = "", q: String = ""): Pair<List<Word>, Int> {
+        val json = execute(
+            "GET", "/api/v1/me/words",
+            query = mapOf(
+                "status" to status.ifBlank { null },
+                "q" to q.ifBlank { null },
+            ),
+        )
+        val arr = json.optJSONArray("words") ?: org.json.JSONArray()
+        return (0 until arr.length()).map { Word.from(arr.getJSONObject(it)) } to json.optInt("total")
+    }
+
     suspend fun wordCreate(word: Word): String =
         execute("POST", "/api/v1/words", wordJson(word)).optString("message", "已录入。")
 

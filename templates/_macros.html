@@ -1,6 +1,6 @@
 {% macro status_badge(status) -%}
   <span class="badge badge-{{ status }}">
-    {% if status == 'learning' %}现为复习{% elif status == 'mastered' %}现为掌握{% else %}现为新词{% endif %}
+    {% if status == 'learning' %}现为了解{% elif status == 'mastered' %}现为掌握{% else %}现为新词{% endif %}
   </span>
 {%- endmacro %}
 

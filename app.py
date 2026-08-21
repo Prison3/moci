@@ -1474,7 +1474,7 @@ def _public_user(user) -> dict:
 
 
 def _word_payload(row) -> dict:
-    return {
+    out = {
         "id": row["id"],
         "term": row["term"],
         "phonetic": row["phonetic"] or "",
@@ -1485,6 +1485,11 @@ def _word_payload(row) -> dict:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
+    try:
+        out["status"] = row["status"] or "new"
+    except (KeyError, IndexError):
+        pass
+    return out
 
 
 def _api_current_user():
@@ -1850,6 +1855,28 @@ def api_profile():
             for kid in children_of(user["id"])
         ]
     return jsonify(out)
+
+
+@app.get("/api/v1/me/words")
+@api_required
+def api_my_words():
+    user = current_user()
+    if not is_learner(user):
+        return api_error("只有学生可以查看自己的单词进度。", 403, "forbidden")
+    status = (request.args.get("status") or "").strip()
+    if status not in {"", "new", "learning", "mastered"}:
+        return api_error("无效的单词状态。")
+    q = (request.args.get("q") or "").strip()
+    rows = list_words(user["id"], q=q, status=status)
+    return jsonify(
+        {
+            "ok": True,
+            "words": [_word_payload(r) for r in rows],
+            "total": len(rows),
+            "status": status,
+            "q": q,
+        }
+    )
 
 
 @app.route("/api/v1/profile/child/<int:child_id>/settings", methods=["POST"])

@@ -56,6 +56,7 @@ data class Word(
     val phrase: String,
     val example: String,
     val notes: String,
+    val status: String = "",
     val updatedAt: String = "",
 ) {
     companion object {
@@ -67,6 +68,7 @@ data class Word(
             phrase = o.optString("phrase"),
             example = o.optString("example"),
             notes = o.optString("notes"),
+            status = o.optString("status"),
             updatedAt = o.optString("updated_at"),
         )
     }
