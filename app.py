@@ -3,15 +3,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import secrets
-import sqlite3
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
-
-import hashlib
 
 from flask import (
     Flask,
@@ -26,6 +24,8 @@ from flask import (
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
+import db as database
+
 # 部分旧 Python/OpenSSL 构建（如 macOS 自带 3.9）没有 hashlib.scrypt，回退 pbkdf2。
 _HASH_METHOD = "scrypt" if hasattr(hashlib, "scrypt") else "pbkdf2:sha256"
 
@@ -35,7 +35,7 @@ def make_password_hash(password: str) -> str:
 
 BASE_DIR = Path(__file__).resolve().parent
 INSTANCE_DIR = BASE_DIR / "instance"
-DB_PATH = INSTANCE_DIR / "words.db"
+_SCHEMA_READY = False
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_\u4e00-\u9fff]{2,20}$")
 ROLE_USER = "user"
@@ -70,14 +70,10 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 
-def get_db() -> sqlite3.Connection:
+def get_db() -> database.Database:
     if "db" not in g:
         INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
-        g.db = conn
+        g.db = database.connect()
     return g.db
 
 
@@ -85,234 +81,17 @@ def get_db() -> sqlite3.Connection:
 def close_db(_exc: BaseException | None = None) -> None:
     db = g.pop("db", None)
     if db is not None:
+        if _exc is not None:
+            db.rollback()
         db.close()
 
 
-def _columns(db: sqlite3.Connection, table: str) -> set[str]:
-    return {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
-
-
-def _tables(db: sqlite3.Connection) -> set[str]:
-    rows = db.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'"
-    ).fetchall()
-    return {row[0] for row in rows}
-
-
 def init_db() -> None:
-    db = get_db()
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'user',
-            status TEXT NOT NULL DEFAULT 'pending',
-            daily_words INTEGER NOT NULL DEFAULT 8,
-            daily_review INTEGER NOT NULL DEFAULT 8,
-            know_speak INTEGER NOT NULL DEFAULT 1,
-            know_spell INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL
-        )
-        """
-    )
-    if "role" not in _columns(db, "users"):
-        db.execute(
-            "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'"
-        )
-    if "status" not in _columns(db, "users"):
-        db.execute(
-            "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'"
-        )
-        db.execute(
-            "UPDATE users SET status = ? WHERE status IS NULL OR status = '' OR status = ?",
-            (STATUS_APPROVED, STATUS_PENDING),
-        )
-        db.execute(
-            "UPDATE users SET status = ? WHERE role = ?",
-            (STATUS_APPROVED, ROLE_ADMIN),
-        )
-    if "daily_words" not in _columns(db, "users"):
-        db.execute(
-            "ALTER TABLE users ADD COLUMN daily_words INTEGER NOT NULL DEFAULT 8"
-        )
-    if "daily_review" not in _columns(db, "users"):
-        db.execute(
-            "ALTER TABLE users ADD COLUMN daily_review INTEGER NOT NULL DEFAULT 8"
-        )
-    if "know_speak" not in _columns(db, "users"):
-        db.execute(
-            "ALTER TABLE users ADD COLUMN know_speak INTEGER NOT NULL DEFAULT 1"
-        )
-    if "know_spell" not in _columns(db, "users"):
-        db.execute(
-            "ALTER TABLE users ADD COLUMN know_spell INTEGER NOT NULL DEFAULT 1"
-        )
-
-    if "words" not in _tables(db):
-        _create_words_table(db)
-    elif "user_id" in _columns(db, "words"):
-        _migrate_legacy_words(db)
-
-    db.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS progress (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            word_id INTEGER NOT NULL,
-            status TEXT NOT NULL DEFAULT 'new',
-            review_count INTEGER NOT NULL DEFAULT 0,
-            correct_streak INTEGER NOT NULL DEFAULT 0,
-            last_reviewed TEXT,
-            next_review TEXT,
-            updated_at TEXT NOT NULL,
-            UNIQUE(user_id, word_id),
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (word_id) REFERENCES words(id) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS review_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            word_id INTEGER NOT NULL,
-            rating TEXT NOT NULL,
-            kind TEXT NOT NULL DEFAULT 'new',
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (word_id) REFERENCES words(id) ON DELETE CASCADE
-        );
-        CREATE INDEX IF NOT EXISTS idx_words_term ON words(term);
-        CREATE INDEX IF NOT EXISTS idx_progress_due ON progress(user_id, next_review);
-        CREATE INDEX IF NOT EXISTS idx_review_logs_day ON review_logs(user_id, created_at);
-        CREATE TABLE IF NOT EXISTS parent_children (
-            parent_id INTEGER NOT NULL,
-            child_id INTEGER NOT NULL,
-            created_at TEXT NOT NULL,
-            PRIMARY KEY (parent_id, child_id),
-            FOREIGN KEY (parent_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (child_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-        """
-    )
-    if "kind" not in _columns(db, "review_logs"):
-        db.execute(
-            "ALTER TABLE review_logs ADD COLUMN kind TEXT NOT NULL DEFAULT 'new'"
-        )
-    if "words" in _tables(db) and "phrase" not in _columns(db, "words"):
-        db.execute(
-            "ALTER TABLE words ADD COLUMN phrase TEXT NOT NULL DEFAULT ''"
-        )
-
-    admin_n = db.execute(
-        "SELECT COUNT(*) AS n FROM users WHERE role = ?", (ROLE_ADMIN,)
-    ).fetchone()["n"]
-    if admin_n == 0:
-        first = db.execute("SELECT id FROM users ORDER BY id ASC LIMIT 1").fetchone()
-        if first:
-            db.execute(
-                "UPDATE users SET role = ? WHERE id = ?", (ROLE_ADMIN, first["id"])
-            )
-    db.commit()
-
-
-def _create_words_table(db: sqlite3.Connection) -> None:
-    db.execute(
-        """
-        CREATE TABLE words (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            term TEXT NOT NULL,
-            phonetic TEXT NOT NULL DEFAULT '',
-            meaning TEXT NOT NULL,
-            phrase TEXT NOT NULL DEFAULT '',
-            example TEXT NOT NULL DEFAULT '',
-            notes TEXT NOT NULL DEFAULT '',
-            created_by INTEGER,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
-        )
-        """
-    )
-
-
-def _migrate_legacy_words(db: sqlite3.Connection) -> None:
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS words_new (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            term TEXT NOT NULL,
-            phonetic TEXT NOT NULL DEFAULT '',
-            meaning TEXT NOT NULL,
-            phrase TEXT NOT NULL DEFAULT '',
-            example TEXT NOT NULL DEFAULT '',
-            notes TEXT NOT NULL DEFAULT '',
-            created_by INTEGER,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-        """
-    )
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS progress (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            word_id INTEGER NOT NULL,
-            status TEXT NOT NULL DEFAULT 'new',
-            review_count INTEGER NOT NULL DEFAULT 0,
-            correct_streak INTEGER NOT NULL DEFAULT 0,
-            last_reviewed TEXT,
-            next_review TEXT,
-            updated_at TEXT NOT NULL,
-            UNIQUE(user_id, word_id)
-        )
-        """
-    )
-    old_words = db.execute("SELECT * FROM words ORDER BY id ASC").fetchall()
-    term_map: dict[str, int] = {}
-    for w in old_words:
-        key = (w["term"] or "").strip().lower()
-        if key not in term_map:
-            cur = db.execute(
-                """
-                INSERT INTO words_new (
-                    term, phonetic, meaning, phrase, example, notes, created_by, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    w["term"],
-                    w["phonetic"],
-                    w["meaning"],
-                    w["phrase"] if "phrase" in w.keys() else "",
-                    w["example"],
-                    w["notes"],
-                    w["user_id"],
-                    w["created_at"],
-                    w["updated_at"],
-                ),
-            )
-            term_map[key] = cur.lastrowid
-        new_id = term_map[key]
-        db.execute(
-            """
-            INSERT OR IGNORE INTO progress (
-                user_id, word_id, status, review_count, correct_streak,
-                last_reviewed, next_review, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                w["user_id"],
-                new_id,
-                w["status"] or "new",
-                w["review_count"] or 0,
-                w["correct_streak"] or 0,
-                w["last_reviewed"],
-                w["next_review"],
-                w["updated_at"] or now_iso(),
-            ),
-        )
-    db.execute("DROP TABLE words")
-    db.execute("ALTER TABLE words_new RENAME TO words")
+    global _SCHEMA_READY
+    if _SCHEMA_READY:
+        return
+    database.init_schema(get_db())
+    _SCHEMA_READY = True
 
 
 def now_iso() -> str:
@@ -591,12 +370,12 @@ def due_cards(
         sql += f" AND w.id NOT IN ({placeholders})"
         params.extend(exclude_ids)
     if kind == KIND_REVIEW:
-        sql += " ORDER BY datetime(p.last_reviewed) ASC LIMIT ?"
+        sql += " ORDER BY p.last_reviewed ASC LIMIT ?"
     else:
         sql += """
             ORDER BY CASE COALESCE(p.status, 'new')
                 WHEN 'new' THEN 0 WHEN 'learning' THEN 1 ELSE 2 END,
-                datetime(p.next_review) ASC
+                p.next_review ASC
             LIMIT ?
         """
     params.append(limit)
@@ -711,12 +490,12 @@ def month_study_calendar(user_id: int, user=None) -> dict:
     end = (nxt - timedelta(seconds=1)).strftime("%Y-%m-%d %H:%M:%S")
     rows = get_db().execute(
         """
-        SELECT date(created_at) AS day,
+        SELECT LEFT(created_at, 10) AS day,
                COALESCE(kind, 'new') AS kind,
                COUNT(DISTINCT word_id) AS words
         FROM review_logs
         WHERE user_id = ? AND created_at >= ? AND created_at <= ?
-        GROUP BY day, kind
+        GROUP BY 1, 2
         """,
         (user_id, start, end),
     ).fetchall()
@@ -817,13 +596,13 @@ def month_learning_calendar(
             params.extend(allowed_ids)
         rows = get_db().execute(
             f"""
-            SELECT date(created_at) AS day,
-                   COUNT(DISTINCT CASE WHEN COALESCE(kind, 'new') = 'new' THEN user_id || ':' || word_id END) AS new_n,
-                   COUNT(DISTINCT CASE WHEN kind = 'review' THEN user_id || ':' || word_id END) AS review_n,
+            SELECT LEFT(created_at, 10) AS day,
+                   COUNT(DISTINCT CASE WHEN COALESCE(kind, 'new') = 'new' THEN CONCAT(user_id, ':', word_id) END) AS new_n,
+                   COUNT(DISTINCT CASE WHEN kind = 'review' THEN CONCAT(user_id, ':', word_id) END) AS review_n,
                    COUNT(DISTINCT user_id) AS learners
             FROM review_logs
             WHERE created_at >= ? AND created_at <= ?{extra}
-            GROUP BY day
+            GROUP BY 1
             """,
             params,
         ).fetchall()
@@ -890,7 +669,7 @@ def day_study_words(user_id: int, day: str) -> list[dict]:
     start, end = day_bounds(day)
     rows = get_db().execute(
         """
-        SELECT w.term, w.meaning, IFNULL(w.phrase, '') AS phrase, IFNULL(w.example, '') AS example,
+        SELECT w.term, w.meaning, COALESCE(w.phrase, '') AS phrase, COALESCE(w.example, '') AS example,
                COALESCE(p.status, 'new') AS status,
                last.rating,
                COALESCE(last.kind, 'new') AS kind
@@ -956,13 +735,13 @@ def list_words(user_id: int, q: str = "", status: str = ""):
     """
     params: list = [user_id]
     if q:
-        sql += " AND (w.term LIKE ? OR w.meaning LIKE ? OR w.phonetic LIKE ? OR w.phrase LIKE ? OR w.example LIKE ?)"
+        sql += " AND (w.term ILIKE ? OR w.meaning ILIKE ? OR w.phonetic ILIKE ? OR w.phrase ILIKE ? OR w.example ILIKE ?)"
         like = f"%{q}%"
         params.extend([like, like, like, like, like])
     if status in {"new", "learning", "mastered"}:
         sql += " AND COALESCE(p.status, 'new') = ?"
         params.append(status)
-    sql += " ORDER BY datetime(w.updated_at) DESC"
+    sql += " ORDER BY w.updated_at DESC"
     return get_db().execute(sql, params).fetchall()
 
 
@@ -970,10 +749,10 @@ def list_library(q: str = ""):
     sql = "SELECT * FROM words WHERE 1 = 1"
     params: list = []
     if q:
-        sql += " AND (term LIKE ? OR meaning LIKE ? OR phonetic LIKE ? OR IFNULL(phrase,'') LIKE ? OR example LIKE ?)"
+        sql += " AND (term ILIKE ? OR meaning ILIKE ? OR phonetic ILIKE ? OR COALESCE(phrase,'') ILIKE ? OR example ILIKE ?)"
         like = f"%{q}%"
         params.extend([like, like, like, like, like])
-    sql += " ORDER BY datetime(updated_at) DESC"
+    sql += " ORDER BY updated_at DESC"
     return get_db().execute(sql, params).fetchall()
 
 
@@ -1149,7 +928,7 @@ def home():
             (ROLE_ADMIN, STATUS_PENDING),
         ).fetchall()
         recent = db.execute(
-            "SELECT * FROM words ORDER BY datetime(created_at) DESC LIMIT 6"
+            "SELECT * FROM words ORDER BY created_at DESC LIMIT 6"
         ).fetchall()
         return render_template(
             "home.html",
@@ -1573,7 +1352,7 @@ def api_review(word_id: int):
             user_id, word_id, status, review_count, correct_streak,
             last_reviewed, next_review, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(user_id, word_id) DO UPDATE SET
+        ON CONFLICT (user_id, word_id) DO UPDATE SET
             status=excluded.status,
             review_count=excluded.review_count,
             correct_streak=excluded.correct_streak,
@@ -1877,8 +1656,9 @@ def admin_bind_child(user_id: int):
         return redirect(url_for("admin_users"))
     get_db().execute(
         """
-        INSERT OR IGNORE INTO parent_children (parent_id, child_id, created_at)
+        INSERT INTO parent_children (parent_id, child_id, created_at)
         VALUES (?, ?, ?)
+        ON CONFLICT (parent_id, child_id) DO NOTHING
         """,
         (user_id, child_id, now_iso()),
     )
@@ -2145,7 +1925,7 @@ def api_home():
             (ROLE_ADMIN, STATUS_PENDING),
         ).fetchall()
         recent = db.execute(
-            "SELECT * FROM words ORDER BY datetime(created_at) DESC LIMIT 6"
+            "SELECT * FROM words ORDER BY created_at DESC LIMIT 6"
         ).fetchall()
         return jsonify(
             {
@@ -2291,7 +2071,7 @@ def api_review_submit(word_id: int):
             user_id, word_id, status, review_count, correct_streak,
             last_reviewed, next_review, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(user_id, word_id) DO UPDATE SET
+        ON CONFLICT (user_id, word_id) DO UPDATE SET
             status=excluded.status,
             review_count=excluded.review_count,
             correct_streak=excluded.correct_streak,
@@ -2496,6 +2276,7 @@ def api_word_create():
         INSERT INTO words (
             term, phonetic, meaning, phrase, example, notes, created_by, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
         """,
         (
             data["term"],
@@ -2509,8 +2290,9 @@ def api_word_create():
             ts,
         ),
     )
+    new_id = cur.fetchone()["id"]
     db.commit()
-    word = db.execute("SELECT * FROM words WHERE id = ?", (cur.lastrowid,)).fetchone()
+    word = db.execute("SELECT * FROM words WHERE id = ?", (new_id,)).fetchone()
     return jsonify(
         {
             "ok": True,
@@ -2714,8 +2496,9 @@ def api_admin_bind_child(user_id: int):
         return api_error("只能绑定已审核通过的学生。")
     db.execute(
         """
-        INSERT OR IGNORE INTO parent_children (parent_id, child_id, created_at)
+        INSERT INTO parent_children (parent_id, child_id, created_at)
         VALUES (?, ?, ?)
+        ON CONFLICT (parent_id, child_id) DO NOTHING
         """,
         (user_id, child_id, now_iso()),
     )

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -15,18 +14,11 @@ sys.path.insert(0, str(ROOT))
 from data.primary_school_words import WORDS  # noqa: E402
 from data.shanghai_oxford_extra import EXTRA_WORDS  # noqa: E402
 from data.word_usage import usage_for  # noqa: E402
-
-DB_PATH = ROOT / "instance" / "words.db"
+from db import connect, init_schema  # noqa: E402
 
 
 def now_iso() -> str:
     return datetime.now().replace(microsecond=0).isoformat(sep=" ")
-
-
-def ensure_phrase_column(conn: sqlite3.Connection) -> None:
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(words)")}
-    if "phrase" not in cols:
-        conn.execute("ALTER TABLE words ADD COLUMN phrase TEXT NOT NULL DEFAULT ''")
 
 
 def main() -> None:
@@ -39,13 +31,8 @@ def main() -> None:
     args = parser.parse_args()
     refresh = args.refresh
 
-    if not DB_PATH.exists():
-        raise SystemExit(f"找不到数据库：{DB_PATH}，请先启动一次应用。")
-
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    ensure_phrase_column(conn)
+    conn = connect()
+    init_schema(conn)
 
     admin = conn.execute(
         "SELECT id FROM users WHERE role = 'admin' ORDER BY id ASC LIMIT 1"
@@ -94,11 +81,12 @@ def main() -> None:
                 )
                 filled += 1
             continue
-        conn.execute(
+        new_row = conn.execute(
             """
             INSERT INTO words (
                 term, phonetic, meaning, phrase, example, notes, created_by, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
             """,
             (
                 term,
@@ -111,9 +99,9 @@ def main() -> None:
                 ts,
                 ts,
             ),
-        )
+        ).fetchone()
         existing[key] = {
-            "id": conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"],
+            "id": new_row["id"],
             "term": term,
             "meaning": meaning,
             "notes": notes,
@@ -126,7 +114,7 @@ def main() -> None:
         """
         SELECT id, term, meaning, notes, phrase, example
         FROM words
-        WHERE IFNULL(phrase, '') = '' OR IFNULL(example, '') = ''
+        WHERE COALESCE(phrase, '') = '' OR COALESCE(example, '') = ''
         """
     ).fetchall()
     for row in extra:
@@ -149,7 +137,7 @@ def main() -> None:
     empty = conn.execute(
         """
         SELECT COUNT(*) AS n FROM words
-        WHERE IFNULL(phrase, '') = '' OR IFNULL(example, '') = ''
+        WHERE COALESCE(phrase, '') = '' OR COALESCE(example, '') = ''
         """
     ).fetchone()["n"]
     conn.close()

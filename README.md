@@ -35,22 +35,37 @@ On **Me**:
 ## Stack
 
 - Python 3 + Flask
-- SQLite (`instance/words.db`)
+- PostgreSQL (default `postgresql://moci:moci@127.0.0.1:5432/moci`)
 - Gunicorn for production
 - Mobile-first HTML/CSS (no frontend framework)
 
 ## Run locally
 
+Start PostgreSQL first. On this host the `moci` database already exists. For a new machine:
+
+```bash
+docker compose up -d
+```
+
+Or create a local role and database named `moci`. Then:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+export DATABASE_URL=postgresql://moci:moci@127.0.0.1:5432/moci
 python3 app.py
 ```
 
-Then open `http://127.0.0.1:5000`. The first visit creates the database and a secret key under `instance/`.
+Then open `http://127.0.0.1:5000`. The first visit creates tables if needed and a secret key under `instance/`.
 
 Register the first account (it becomes admin). Approve later users from **Users**.
+
+If you still have `instance/words.db` and the PostgreSQL database is empty:
+
+```bash
+python3 scripts/migrate_sqlite.py
+```
 
 ## Import the primary-school word list
 
@@ -75,19 +90,22 @@ Gunicorn does not reload on code changes. Restart the process (for example `supe
 ## Project layout
 
 ```
-app.py                      # Flask app, routes, SQLite schema
+app.py                      # Flask app, routes
+db.py                       # PostgreSQL connection and schema
 templates/                  # Pages
 static/css/style.css
 static/js/app.js            # Flashcards, spelling check
 data/primary_school_words.py
 scripts/import_primary.py
-instance/                   # DB and secret key (not committed)
+scripts/migrate_sqlite.py   # Optional SQLite → PostgreSQL copy
+instance/                   # secret key (not committed)
 ```
 
 ## Config
 
 | Item | Notes |
 | --- | --- |
+| `DATABASE_URL` | PostgreSQL URL. Default `postgresql://moci:moci@127.0.0.1:5432/moci`. |
 | `SECRET_KEY` | Optional env var. Otherwise `instance/secret_key` is generated. |
 | `PORT` | Dev server port, default `5000`. |
 | Daily quota | `users.daily_words` (new) and `users.daily_review` (familiar). Parents edit both on **Tasks**. |
