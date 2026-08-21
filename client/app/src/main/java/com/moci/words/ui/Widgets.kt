@@ -109,7 +109,7 @@ fun MociTopBar(subtitle: String, username: String, onUserClick: () -> Unit) {
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Column {
-            Text("墨词", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Pine, fontFamily = SerifFamily)
+            Text("Moci", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Pine, fontFamily = SerifFamily)
             if (subtitle.isNotEmpty()) {
                 Text(subtitle, fontSize = 12.sp, color = InkSoft)
             }

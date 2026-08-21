@@ -4,4 +4,8 @@
     <color name="paper">#EFE6D6</color>
     <color name="ink">#1F1A14</color>
     <color name="ink_soft">#5C5348</color>
+    <!-- 启动图标：青绿印底，与墨字朱砂印成对 -->
+    <color name="launcher_bg">#2C4A3E</color>
+    <color name="launcher_seal">#F3E6D4</color>
+    <color name="launcher_ink">#1A120C</color>
 </resources>

@@ -17,3 +17,7 @@ client/local.properties
 client/.idea/
 *.apk
 *.keystore
+
+# Vosk offline ASR model (~40MB); fetch with ./scripts/fetch_vosk_model.sh
+client/app/src/main/assets/model-en-us/**
+!client/app/src/main/assets/model-en-us/README.md

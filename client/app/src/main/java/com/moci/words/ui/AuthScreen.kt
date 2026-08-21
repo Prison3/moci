@@ -67,7 +67,7 @@ fun AuthScreen(onLogin: (User) -> Unit) {
     ) {
         Spacer(Modifier.height(64.dp))
         Text(
-            "墨词",
+            "Moci",
             fontSize = 42.sp,
             fontWeight = FontWeight.Bold,
             color = Pine,

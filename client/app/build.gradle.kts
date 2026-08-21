@@ -21,6 +21,11 @@ android {
 
         buildConfigField("String", "BASE_URL", "\"$mociBaseUrl\"")
         manifestPlaceholders["mociCleartext"] = mociCleartext
+
+        ndk {
+            // Vosk 提供这些 ABI；模拟器可走 x86_64
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86_64")
+        }
     }
 
     buildTypes {
@@ -33,6 +38,12 @@ android {
     buildFeatures {
         buildConfig = true
         compose = true
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 
     compileOptions {
@@ -60,5 +71,8 @@ dependencies {
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
+    // 本地离线语音识别（英文）
+    implementation("com.alphacephei:vosk-android:0.3.75")
+    implementation("net.java.dev.jna:jna:5.18.1@aar")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

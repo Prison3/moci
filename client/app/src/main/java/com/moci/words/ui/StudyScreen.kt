@@ -1,9 +1,7 @@
 package com.moci.words.ui
 
 import android.Manifest
-import android.app.Activity
 import android.content.pm.PackageManager
-import android.speech.RecognizerIntent
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -55,6 +53,7 @@ import com.moci.words.MociSpeech
 import com.moci.words.api.ApiException
 import com.moci.words.api.Card
 import com.moci.words.api.CardsData
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class CheckStage { None, Read, Spell }
@@ -186,47 +185,22 @@ fun StudyScreen(onExit: () -> Unit) {
 
     fun speechErrorMessage(code: String): String = when (code) {
         "not-allowed" -> "没有麦克风权限，请在系统设置中允许。"
-        "service-not-available" -> "设备没有可用的语音识别，请安装或启用语音输入。"
+        "model-loading" -> "语音模型正在加载，请稍后再试。"
+        "service-not-available" ->
+            app.speech.modelErrorMessage()?.let { "本地语音模型不可用：$it" }
+                ?: "本地语音模型未就绪，请确认已放入 model-en-us。"
         "no-speech" -> "没有听到声音，请再试一次。"
         "no-match" -> "没听清或读得不对，请再试一次。"
-        "network" -> "语音识别需要网络，请检查连接后重试。"
         "busy" -> "识别器正忙，请稍后再试。"
         "aborted" -> "已取消。"
         else -> "没听清或读得不对，请再试一次。"
     }
 
-    val speechIntentLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        listening = false
-        val current = card ?: return@rememberLauncherForActivityResult
-        if (result.resultCode == Activity.RESULT_CANCELED) return@rememberLauncherForActivityResult
-        val texts = result.data
-            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            .orEmpty()
-        if (result.resultCode != Activity.RESULT_OK || texts.isEmpty()) {
-            readError = "没听清或读得不对，请再试一次。"
-            return@rememberLauncherForActivityResult
-        }
-        onSpoken(current.term, current.id, texts)
-    }
-
-    fun launchSpeechIntent() {
-        listening = true
-        readError = null
-        runCatching { speechIntentLauncher.launch(app.speech.recognizeIntent()) }
-            .onFailure {
-                listening = false
-                readError = "设备没有可用的语音识别，请安装或启用语音输入。"
-            }
-    }
-
     fun beginInAppSpeech(current: Card) {
         app.speech.start(
             context = context,
+            expectedTerm = current.term,
             callback = object : MociSpeech.Callback {
-                private var fallbackToIntent = false
-
                 override fun onStart() {
                     listening = true
                     readError = null
@@ -241,17 +215,12 @@ fun StudyScreen(onExit: () -> Unit) {
                         listening = false
                         return
                     }
-                    if (code == "service-not-available") {
-                        fallbackToIntent = true
-                        launchSpeechIntent()
-                        return
-                    }
                     listening = false
                     readError = speechErrorMessage(code)
                 }
 
                 override fun onEnd() {
-                    if (!fallbackToIntent) listening = false
+                    listening = false
                 }
             },
         )
@@ -266,13 +235,32 @@ fun StudyScreen(onExit: () -> Unit) {
             readError = "没有麦克风权限，无法朗读检查。"
             return@rememberLauncherForActivityResult
         }
-        if (app.speech.isAvailable(context)) beginInAppSpeech(current) else launchSpeechIntent()
+        beginInAppSpeech(current)
+    }
+
+    // 模型首次解压较慢，进入朗读页时若未就绪则继续尝试加载
+    LaunchedEffect(stage) {
+        if (stage != CheckStage.Read) return@LaunchedEffect
+        if (app.speech.isAvailable()) return@LaunchedEffect
+        app.speech.ensureModel()
+        repeat(40) {
+            if (app.speech.isAvailable() || app.speech.modelErrorMessage() != null) return@LaunchedEffect
+            delay(250)
+        }
     }
 
     fun startListening() {
         val current = card ?: return
         app.tts.stop()
         readError = null
+        if (!app.speech.isAvailable()) {
+            app.speech.ensureModel()
+            listening = false
+            readError = speechErrorMessage(
+                if (app.speech.isLoading()) "model-loading" else "service-not-available",
+            )
+            return
+        }
         listening = true
         val granted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.RECORD_AUDIO,
@@ -281,11 +269,7 @@ fun StudyScreen(onExit: () -> Unit) {
             micPermission.launch(Manifest.permission.RECORD_AUDIO)
             return
         }
-        if (app.speech.isAvailable(context)) {
-            beginInAppSpeech(current)
-        } else {
-            launchSpeechIntent()
-        }
+        beginInAppSpeech(current)
     }
 
     fun beginKnowCheck() {
@@ -471,7 +455,8 @@ fun StudyScreen(onExit: () -> Unit) {
                         Text(
                             when {
                                 readError != null -> readError!!
-                                listening -> "正在听，请读英文…"
+                                listening -> "正在听（本地识别），请读英文…"
+                                app.speech.isLoading() -> "本地语音模型加载中…"
                                 else -> "卡片已收起。点话筒录音，读对后才能默写。"
                             },
                             fontSize = 13.sp,

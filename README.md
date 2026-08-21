@@ -75,7 +75,18 @@ python3 scripts/migrate_sqlite.py
 
 ### Client
 
-Open `client/` in Android Studio, or build from the command line:
+朗读检查使用 **Vosk 本地识别**。请先自行下载英文小模型并放到 assets：
+
+1. 下载 [vosk-model-small-en-us-0.15](https://alphacephei.com/vosk/models)（约 40MB zip）
+2. 解压内容放到 `client/app/src/main/assets/model-en-us/`（目录下直接是 `am/` `conf/` `graph/` `ivector/`）
+
+或把 zip 交给脚本安装：
+
+```bash
+./scripts/fetch_vosk_model.sh /path/to/vosk-model-small-en-us-0.15.zip
+```
+
+然后打开 `client/` 用 Android Studio 构建，或：
 
 ```bash
 cd client

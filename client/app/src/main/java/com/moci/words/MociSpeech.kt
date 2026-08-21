@@ -1,18 +1,26 @@
 package com.moci.words
 
 import android.content.Context
-import android.content.Intent
-import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
+import android.util.Log
+import org.json.JSONArray
+import org.json.JSONObject
+import org.vosk.LibVosk
+import org.vosk.LogLevel
+import org.vosk.Model
+import org.vosk.Recognizer
+import org.vosk.android.RecognitionListener
+import org.vosk.android.SpeechService
+import org.vosk.android.StorageService
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 英文语音识别（朗读检查）。
- * SpeechRecognizer 必须在主线程创建/使用；不能在 listener 回调里同步 destroy，
- * 否则会出现点了「开始朗读」立刻失败、或识别器被自己取消的情况。
+ * 本地离线英文语音识别（Vosk）。
+ * 模型放在 assets/model-en-us，首次启动解压到应用私有目录。
+ *
+ * 注意：SpeechService 带 timeout 的 startListening 在超时时只回调 [RecognitionListener.onTimeout]，
+ * **不会**给出 final result。因此这里用不带超时的 startListening，到时主动 stop() 以拿到结果。
  */
 class MociSpeech(private val appContext: Context) {
 
@@ -24,112 +32,158 @@ class MociSpeech(private val appContext: Context) {
     }
 
     private val main = Handler(Looper.getMainLooper())
-    private var recognizer: SpeechRecognizer? = null
+    private val lock = Any()
+
+    @Volatile private var model: Model? = null
+    @Volatile private var modelError: String? = null
+    @Volatile private var loading = false
+
+    private var speechService: SpeechService? = null
     private var callback: Callback? = null
-    @Volatile private var cancelled = false
-    @Volatile private var busyRetries = 0
+    private var timeoutRunnable: Runnable? = null
+    private val cancelled = AtomicBoolean(false)
+    private val finished = AtomicBoolean(false)
 
-    fun isAvailable(context: Context = appContext): Boolean =
-        SpeechRecognizer.isRecognitionAvailable(context)
+    /** 会话中收集到的假设（partial / intermediate / final） */
+    private val heard = linkedSetOf<String>()
 
-    /** 系统语音输入面板（部分国产机没有应用内 RecognitionService，用这个更稳）。 */
-    fun recognizeIntent(lang: String = "en-US", maxAlternatives: Int = 5): Intent =
-        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, lang)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, maxAlternatives.coerceIn(1, 5))
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "请朗读这个单词")
-        }
+    init {
+        LibVosk.setLogLevel(LogLevel.WARNINGS)
+        ensureModel()
+    }
 
-    fun start(context: Context, lang: String = "en-US", maxAlternatives: Int = 5, callback: Callback) {
+    /** 模型已就绪时可离线识别。 */
+    fun isAvailable(context: Context = appContext): Boolean = model != null
+
+    fun isLoading(): Boolean = loading && model == null
+
+    fun modelErrorMessage(): String? = modelError
+
+    fun ensureModel() {
+        if (model != null || loading) return
+        loading = true
+        modelError = null
+        Log.i(TAG, "Unpacking Vosk model from assets/$ASSET_MODEL …")
+        StorageService.unpack(
+            appContext,
+            ASSET_MODEL,
+            "model",
+            { unpacked ->
+                model = unpacked
+                loading = false
+                modelError = null
+                Log.i(TAG, "Vosk model ready")
+            },
+            { exc ->
+                loading = false
+                modelError = exc.message ?: "模型加载失败"
+                Log.e(TAG, "Vosk model unpack failed", exc)
+            },
+        )
+    }
+
+    /**
+     * 开始听写。[expectedTerm] 若提供，会用语法约束提高单词命中率。
+     * [timeoutMs] 到时主动 stop，取 final result（默认 6 秒）。
+     */
+    fun start(
+        context: Context,
+        expectedTerm: String? = null,
+        timeoutMs: Int = DEFAULT_TIMEOUT_MS,
+        callback: Callback,
+    ) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            main.post { start(context, lang, maxAlternatives, callback) }
+            main.post { start(context, expectedTerm, timeoutMs, callback) }
             return
         }
         stopInternal(notify = false)
-        cancelled = false
-        busyRetries = 0
+        cancelled.set(false)
+        finished.set(false)
+        heard.clear()
         this.callback = callback
-        bindAndListen(context, lang, maxAlternatives, callback)
-    }
 
-    private fun bindAndListen(context: Context, lang: String, maxAlternatives: Int, cb: Callback) {
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            cb.onError("service-not-available")
-            cb.onEnd()
+        val ready = model
+        if (ready == null) {
+            ensureModel()
+            val err = when {
+                isLoading() -> "model-loading"
+                modelError != null -> "service-not-available"
+                else -> "service-not-available"
+            }
+            Log.w(TAG, "start aborted: model not ready ($err)")
+            callback.onError(err)
+            callback.onEnd()
+            this.callback = null
             return
         }
-        val rec = runCatching { SpeechRecognizer.createSpeechRecognizer(context.applicationContext) }.getOrNull()
-        if (rec == null) {
-            cb.onError("service-not-available")
-            cb.onEnd()
-            return
-        }
-        recognizer = rec
-        rec.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {
-                if (!cancelled) deliver { it.onStart() }
-            }
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {}
-            override fun onPartialResults(partialResults: Bundle?) {}
-            override fun onEvent(eventType: Int, params: Bundle?) {}
 
-            override fun onError(error: Int) {
-                if (cancelled) {
-                    finishQuietly()
-                    return
+        try {
+            val recognizer = buildRecognizer(ready, expectedTerm)
+            val service = SpeechService(recognizer, SAMPLE_RATE)
+            speechService = service
+            Log.i(TAG, "Listening start term=${expectedTerm.orEmpty()} timeout=${timeoutMs}ms")
+            callback.onStart()
+
+            val started = service.startListening(object : RecognitionListener {
+                override fun onPartialResult(hypothesis: String?) {
+                    collectHypothesis(hypothesis)
                 }
-                if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY && busyRetries < 1) {
-                    busyRetries += 1
-                    main.postDelayed({
-                        if (!cancelled) bindAndListen(context, lang, maxAlternatives, cb)
-                    }, 350)
-                    return
+
+                override fun onResult(hypothesis: String?) {
+                    collectHypothesis(hypothesis)
                 }
-                val code = mapError(error)
-                main.post {
-                    if (cancelled) {
-                        finishQuietly()
-                        return@post
+
+                override fun onFinalResult(hypothesis: String?) {
+                    collectHypothesis(hypothesis)
+                    finishWithHeard()
+                }
+
+                override fun onError(e: Exception?) {
+                    if (cancelled.get() || !finished.compareAndSet(false, true)) return
+                    Log.e(TAG, "Vosk recognition error", e)
+                    clearTimeout()
+                    main.post {
+                        teardownService()
+                        val cb = callback
+                        this@MociSpeech.callback = null
+                        if (!cancelled.get()) {
+                            cb.onError(mapException(e))
+                        }
+                        cb.onEnd()
                     }
-                    destroyRecognizer()
-                    cb.onError(code)
-                    cb.onEnd()
-                    if (callback === cb) callback = null
                 }
+
+                override fun onTimeout() {
+                    // 不用带 timeout 的 API；若仍收到则按已收集结果收尾
+                    Log.w(TAG, "Unexpected onTimeout; finishing with heard=${heard.toList()}")
+                    finishWithHeard()
+                }
+            })
+
+            if (!started) {
+                Log.e(TAG, "SpeechService.startListening returned false")
+                teardownService()
+                callback.onError("busy")
+                callback.onEnd()
+                this.callback = null
+                return
             }
 
-            override fun onResults(results: Bundle?) {
-                if (cancelled) {
-                    finishQuietly()
-                    return
-                }
-                val texts = results
-                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    .orEmpty()
-                main.post {
-                    if (cancelled) {
-                        finishQuietly()
-                        return@post
-                    }
-                    destroyRecognizer()
-                    cb.onResults(texts)
-                    cb.onEnd()
-                    if (callback === cb) callback = null
-                }
+            val stopAt = Runnable {
+                if (cancelled.get() || finished.get()) return@Runnable
+                Log.i(TAG, "Timeout → stop() for final result; partial heard=${heard.toList()}")
+                // stop() 会触发 onFinalResult
+                runCatching { speechService?.stop() }
             }
-        })
-        val intent = recognizeIntent(lang, maxAlternatives)
-        intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-        runCatching { rec.startListening(intent) }.onFailure {
-            destroyRecognizer()
-            cb.onError("service-not-available")
-            cb.onEnd()
+            timeoutRunnable = stopAt
+            main.postDelayed(stopAt, timeoutMs.toLong())
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start Vosk", e)
+            clearTimeout()
+            teardownService()
+            callback.onError(mapException(e))
+            callback.onEnd()
+            this.callback = null
         }
     }
 
@@ -138,59 +192,135 @@ class MociSpeech(private val appContext: Context) {
             main.post { cancel() }
             return
         }
-        cancelled = true
+        cancelled.set(true)
         stopInternal(notify = true)
-    }
-
-    private fun stopInternal(notify: Boolean) {
-        val cb = callback
-        destroyRecognizer()
-        callback = null
-        if (notify) {
-            cb?.onEnd()
-        }
-    }
-
-    private fun finishQuietly() {
-        main.post {
-            destroyRecognizer()
-            val cb = callback
-            callback = null
-            cb?.onEnd()
-        }
-    }
-
-    private fun destroyRecognizer() {
-        val rec = recognizer
-        recognizer = null
-        rec?.setRecognitionListener(null)
-        runCatching { rec?.stopListening() }
-        runCatching { rec?.cancel() }
-        runCatching { rec?.destroy() }
-    }
-
-    private fun deliver(block: (Callback) -> Unit) {
-        val cb = callback ?: return
-        if (Looper.myLooper() == Looper.getMainLooper()) block(cb)
-        else main.post { if (!cancelled) callback?.let(block) }
     }
 
     fun destroy() {
         cancel()
+        synchronized(lock) {
+            runCatching { model?.close() }
+            model = null
+        }
     }
 
-    private fun mapError(code: Int): String = when (code) {
-        SpeechRecognizer.ERROR_AUDIO -> "audio-capture"
-        SpeechRecognizer.ERROR_CLIENT -> "aborted"
-        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "not-allowed"
-        SpeechRecognizer.ERROR_NETWORK,
-        SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
-        SpeechRecognizer.ERROR_SERVER,
-        SpeechRecognizer.ERROR_SERVER_DISCONNECTED,
-        SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> "network"
-        SpeechRecognizer.ERROR_NO_MATCH -> "no-match"
-        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "no-speech"
-        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "busy"
-        else -> "unknown"
+    private fun collectHypothesis(raw: String?) {
+        val texts = parseHypotheses(raw)
+        if (texts.isEmpty()) return
+        synchronized(heard) {
+            heard.addAll(texts)
+        }
+        Log.d(TAG, "Heard += $texts → $heard")
+    }
+
+    private fun finishWithHeard() {
+        if (cancelled.get() || !finished.compareAndSet(false, true)) return
+        clearTimeout()
+        val texts = synchronized(heard) { heard.toList() }
+        Log.i(TAG, "Finish results=$texts")
+        main.post {
+            teardownService()
+            val cb = callback
+            this@MociSpeech.callback = null
+            if (cancelled.get()) {
+                cb?.onEnd()
+                return@post
+            }
+            if (texts.isEmpty()) {
+                cb?.onError("no-match")
+            } else {
+                cb?.onResults(texts)
+            }
+            cb?.onEnd()
+        }
+    }
+
+    private fun clearTimeout() {
+        timeoutRunnable?.let { main.removeCallbacks(it) }
+        timeoutRunnable = null
+    }
+
+    private fun stopInternal(notify: Boolean) {
+        val cb = callback
+        finished.set(true)
+        clearTimeout()
+        // cancel() 不投递 final；stop() 会。取消时用 cancel。
+        val svc = speechService
+        speechService = null
+        if (notify) {
+            runCatching { svc?.cancel() }
+            runCatching { svc?.shutdown() }
+            callback = null
+            cb?.onEnd()
+        } else {
+            runCatching { svc?.cancel() }
+            runCatching { svc?.shutdown() }
+            callback = null
+        }
+    }
+
+    private fun teardownService() {
+        clearTimeout()
+        val svc = speechService
+        speechService = null
+        runCatching { svc?.stop() }
+        runCatching { svc?.shutdown() }
+    }
+
+    private fun buildRecognizer(model: Model, expectedTerm: String?): Recognizer {
+        val term = expectedTerm?.trim()?.lowercase().orEmpty()
+        val recognizer = if (term.isNotEmpty()) {
+            val grammar = JSONArray()
+                .put(term)
+                .put("[unk]")
+                .toString()
+            Recognizer(model, SAMPLE_RATE, grammar)
+        } else {
+            Recognizer(model, SAMPLE_RATE)
+        }
+        runCatching { recognizer.setMaxAlternatives(3) }
+        runCatching { recognizer.setPartialWords(true) }
+        return recognizer
+    }
+
+    private fun parseHypotheses(raw: String?): List<String> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return try {
+            val obj = JSONObject(raw)
+            val texts = linkedSetOf<String>()
+            obj.optString("text").trim().takeIf { it.isNotEmpty() }?.let { texts.add(it) }
+            val alts = obj.optJSONArray("alternatives")
+            if (alts != null) {
+                for (i in 0 until alts.length()) {
+                    alts.optJSONObject(i)
+                        ?.optString("text")
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { texts.add(it) }
+                }
+            }
+            val partial = obj.optString("partial").trim()
+            if (partial.isNotEmpty()) texts.add(partial)
+            texts.toList()
+        } catch (_: Exception) {
+            listOf(raw.trim()).filter { it.isNotEmpty() }
+        }
+    }
+
+    private fun mapException(e: Exception?): String {
+        val msg = e?.message.orEmpty().lowercase()
+        return when {
+            "permission" in msg -> "not-allowed"
+            "microphone" in msg || "recorder" in msg -> "not-allowed"
+            "init" in msg || "model" in msg -> "service-not-available"
+            else -> "unknown"
+        }
+    }
+
+    companion object {
+        private const val TAG = "MociSpeech"
+        private const val ASSET_MODEL = "model-en-us"
+        private const val SAMPLE_RATE = 16_000.0f
+        private const val DEFAULT_TIMEOUT_MS = 6_000
     }
 }
