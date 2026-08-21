@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,9 +26,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -44,16 +45,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -646,13 +641,22 @@ private fun SpellBoxesInput(
         }
     }
     val letterCount = slots.count { it >= 0 }
-    val focusRequester = remember { FocusRequester() }
-    val keyboard = LocalSoftwareKeyboardController.current
     val typedLetters = value.filter { !it.isWhitespace() }
+    val systemKeyboard = LocalSoftwareKeyboardController.current
 
+    // 学习默写只用应用内键盘，主动收起系统输入法（避免联想）
     LaunchedEffect(expected) {
-        focusRequester.requestFocus()
-        keyboard?.show()
+        systemKeyboard?.hide()
+    }
+
+    fun appendLetter(ch: Char) {
+        if (typedLetters.length >= letterCount) return
+        onValueChange(buildSpellFromLetters(typedLetters + ch.lowercaseChar(), expected))
+    }
+
+    fun deleteLetter() {
+        if (typedLetters.isEmpty()) return
+        onValueChange(buildSpellFromLetters(typedLetters.dropLast(1), expected))
     }
 
     Column(Modifier.fillMaxWidth()) {
@@ -672,60 +676,112 @@ private fun SpellBoxesInput(
                     if (isWrong) Cinnabar else Line,
                     RoundedCornerShape(14.dp),
                 )
-                .clickable {
-                    focusRequester.requestFocus()
-                    keyboard?.show()
-                }
                 .padding(horizontal = 12.dp, vertical = 14.dp),
         ) {
-            BasicTextField(
-                value = typedLetters,
-                onValueChange = { raw ->
-                    val letters = raw.lowercase()
-                        .filter { it.isLetterOrDigit() || it == '\'' || it == '-' }
-                        .take(letterCount)
-                    onValueChange(buildSpellFromLetters(letters, expected))
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.None,
-                    keyboardType = KeyboardType.Ascii,
-                    autoCorrectEnabled = false,
-                ),
-                cursorBrush = SolidColor(Pine),
-                textStyle = TextStyle(
-                    color = androidx.compose.ui.graphics.Color.Transparent,
-                    fontSize = 1.sp,
-                ),
-                decorationBox = { inner ->
-                    Box {
-                        inner()
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            slots.forEach { idx ->
-                                if (idx < 0) {
-                                    Spacer(Modifier.width(10.dp))
-                                } else {
-                                    SpellLetterCell(
-                                        char = typedLetters.getOrNull(idx),
-                                        active = typedLetters.length == idx,
-                                        isWrong = isWrong,
-                                    )
-                                }
-                            }
-                        }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                slots.forEach { idx ->
+                    if (idx < 0) {
+                        Spacer(Modifier.width(10.dp))
+                    } else {
+                        SpellLetterCell(
+                            char = typedLetters.getOrNull(idx),
+                            active = typedLetters.length == idx,
+                            isWrong = isWrong,
+                        )
                     }
-                },
+                }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        SpellLetterKeyboard(
+            onLetter = ::appendLetter,
+            onDelete = ::deleteLetter,
+            canType = typedLetters.length < letterCount,
+            canDelete = typedLetters.isNotEmpty(),
+        )
+    }
+}
+
+private val SPELL_ROWS = listOf(
+    "qwertyuiop",
+    "asdfghjkl",
+    "zxcvbnm",
+)
+
+@Composable
+private fun SpellLetterKeyboard(
+    onLetter: (Char) -> Unit,
+    onDelete: () -> Unit,
+    canType: Boolean,
+    canDelete: Boolean,
+) {
+    Column(
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        SPELL_ROWS.forEachIndexed { rowIndex, row ->
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (rowIndex == 1) Spacer(Modifier.weight(0.5f))
+                row.forEach { ch ->
+                    SpellKey(
+                        label = ch.toString(),
+                        enabled = canType,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onLetter(ch) },
+                    )
+                }
+                if (rowIndex == 2) {
+                    SpellKey(
+                        label = null,
+                        enabled = canDelete,
+                        modifier = Modifier.weight(1.4f),
+                        onClick = onDelete,
+                    ) {
+                        Icon(
+                            Icons.Filled.Backspace,
+                            contentDescription = "删除",
+                            tint = if (canDelete) Ink else InkSoft.copy(alpha = 0.4f),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+                if (rowIndex == 1) Spacer(Modifier.weight(0.5f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.SpellKey(
+    label: String?,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    content: (@Composable () -> Unit)? = null,
+) {
+    Box(
+        modifier
+            .height(42.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (enabled) Paper2 else Paper)
+            .border(1.dp, Line, RoundedCornerShape(8.dp))
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (content != null) {
+            content()
+        } else {
+            Text(
+                text = label.orEmpty(),
+                fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                color = if (enabled) Ink else InkSoft.copy(alpha = 0.4f),
             )
         }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "点方格输入英文拼写",
-            fontSize = 12.sp,
-            color = InkSoft,
-        )
     }
 }
 
