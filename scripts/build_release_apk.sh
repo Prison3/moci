@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# 编译 Android release APK 并复制到 server/downloads/moci.apk
+# 编译 Android release APK，复制到 server/downloads/moci.apk，并上传到服务器
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLIENT="$ROOT/client"
 OUT="$ROOT/server/downloads"
 APK_NAME="moci.apk"
+REMOTE_HOST="${MOCI_UPLOAD_HOST:-root@cn}"
+REMOTE_DIR="${MOCI_UPLOAD_DIR:-/root/moci/server/downloads}"
+REMOTE="${REMOTE_HOST}:${REMOTE_DIR}/${APK_NAME}"
 
 cd "$CLIENT"
 if [[ -x ./gradlew ]]; then
@@ -32,8 +35,9 @@ cp "$BUILT" "$OUT/$APK_NAME"
 echo "Release APK: $OUT/$APK_NAME"
 ls -lh "$OUT/$APK_NAME"
 
-if [[ "${MOCI_UPLOAD:-}" == "1" ]]; then
-  REMOTE="${MOCI_UPLOAD_HOST:-root@cn}:/root/moci/server/downloads/moci.apk"
+if [[ "${MOCI_UPLOAD:-1}" != "0" ]]; then
   echo "上传到 $REMOTE ..."
+  ssh "$REMOTE_HOST" "mkdir -p '$REMOTE_DIR'"
   scp "$OUT/$APK_NAME" "$REMOTE"
+  echo "上传完成"
 fi

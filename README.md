@@ -65,10 +65,10 @@ Android 客户端安装包下载：
 ./scripts/build_release_apk.sh
 ```
 
-上传到服务器（需已配置 SSH，默认 `root@cn`）：
+默认会编译并上传到服务器（`root@cn:/root/moci/server/downloads/moci.apk`）。仅本地构建不上传：
 
 ```bash
-MOCI_UPLOAD=1 ./scripts/build_release_apk.sh
+MOCI_UPLOAD=0 ./scripts/build_release_apk.sh
 ```
 
 The web login is for admins. Register the first account on the web (it becomes admin). Students and parents register in the Android app. Approve later users from **Users**.
