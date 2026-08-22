@@ -19,6 +19,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    send_from_directory,
     session,
     url_for,
 )
@@ -35,6 +36,10 @@ def make_password_hash(password: str) -> str:
 
 BASE_DIR = Path(__file__).resolve().parent
 INSTANCE_DIR = BASE_DIR / "instance"
+DOWNLOADS_DIR = BASE_DIR / "downloads"
+APP_APK_NAME = "moci.apk"
+APP_VERSION_NAME = os.environ.get("APP_VERSION_NAME", "1.0.0")
+APP_VERSION_CODE = int(os.environ.get("APP_VERSION_CODE", "1"))
 _SCHEMA_READY = False
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_\u4e00-\u9fff]{2,20}$")
@@ -1490,6 +1495,52 @@ def _parse_word_form(require_meaning: bool = True) -> dict:
 
 def api_error(message: str, status: int = 400, code: str = "error"):
     return jsonify({"ok": False, "error": code, "message": message}), status
+
+
+def app_apk_path() -> Path:
+    return DOWNLOADS_DIR / APP_APK_NAME
+
+
+def app_release_info() -> dict | None:
+    path = app_apk_path()
+    if not path.is_file():
+        return None
+    stat = path.stat()
+    return {
+        "version_name": APP_VERSION_NAME,
+        "version_code": APP_VERSION_CODE,
+        "filename": APP_APK_NAME,
+        "size_bytes": stat.st_size,
+        "updated_at": datetime.fromtimestamp(stat.st_mtime).replace(microsecond=0).isoformat(sep=" "),
+        "download_url": url_for("download_apk", _external=True),
+    }
+
+
+@app.context_processor
+def inject_app_release():
+    return {"app_release": app_release_info()}
+
+
+@app.get("/download/moci.apk")
+def download_apk():
+    path = app_apk_path()
+    if not path.is_file():
+        return api_error("Android 安装包尚未发布。", 404, "not_found")
+    return send_from_directory(
+        DOWNLOADS_DIR,
+        APP_APK_NAME,
+        as_attachment=True,
+        download_name=APP_APK_NAME,
+        mimetype="application/vnd.android.package-archive",
+    )
+
+
+@app.get("/api/v1/app/info")
+def api_app_info():
+    info = app_release_info()
+    if not info:
+        return api_error("Android 安装包尚未发布。", 404, "not_found")
+    return jsonify({"ok": True, **info})
 
 
 def _public_user(user) -> dict:

@@ -6,6 +6,9 @@
 <section class="auth-card">
   <h1>管理员登录</h1>
   <p class="lead">网页端仅供管理员使用。学生和家长请使用 App 学习与查看进度。</p>
+  {% if app_release %}
+  <p class="auth-switch"><a href="{{ app_release.download_url }}">下载 Android 客户端 v{{ app_release.version_name }}</a>（{{ (app_release.size_bytes / 1048576) | round(1) }} MB）</p>
+  {% endif %}
   <form method="post" class="form" autocomplete="on">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label>

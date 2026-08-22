@@ -32,6 +32,8 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // 内部分发：无正式签名时使用 debug 证书
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

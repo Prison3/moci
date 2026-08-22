@@ -54,6 +54,23 @@ python3 app.py
 
 Then open `http://127.0.0.1:5000`. The first visit creates tables if needed and a secret key under `server/instance/`.
 
+Android 客户端安装包下载：
+
+- 直接下载：`http://127.0.0.1:5000/download/moci.apk`
+- 版本信息：`GET /api/v1/app/info`（返回 `download_url`、版本号、文件大小）
+
+重新编译并发布 APK：
+
+```bash
+./scripts/build_release_apk.sh
+```
+
+上传到服务器（需已配置 SSH，默认 `root@cn`）：
+
+```bash
+MOCI_UPLOAD=1 ./scripts/build_release_apk.sh
+```
+
 The web login is for admins. Register the first account on the web (it becomes admin). Students and parents register in the Android app. Approve later users from **Users**.
 
 ### Client

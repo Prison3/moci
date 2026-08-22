@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 *.db
 instance/
+server/downloads/*.apk
 .env
 .venv/
 venv/
