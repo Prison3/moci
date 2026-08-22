@@ -251,16 +251,16 @@ private fun ChildSettingsCard(child: ChildInfo, onSaved: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var dailyWords by remember(child.user.id) {
+    var dailyWords by remember(child.user.id, child.user.dailyWords) {
         mutableStateOf(child.user.dailyWords.toString())
     }
-    var dailyReview by remember(child.user.id) {
+    var dailyReview by remember(child.user.id, child.user.dailyReview) {
         mutableStateOf(child.user.dailyReview.toString())
     }
-    var knowSpeak by remember(child.user.id) { mutableStateOf(child.user.knowSpeak) }
-    var knowSpell by remember(child.user.id) { mutableStateOf(child.user.knowSpell) }
-    var knowPos by remember(child.user.id) { mutableStateOf(child.user.knowPos) }
-    var knowPhonetic by remember(child.user.id) { mutableStateOf(child.user.knowPhonetic) }
+    var knowSpeak by remember(child.user.id, child.user.knowSpeak) { mutableStateOf(child.user.knowSpeak) }
+    var knowSpell by remember(child.user.id, child.user.knowSpell) { mutableStateOf(child.user.knowSpell) }
+    var knowPos by remember(child.user.id, child.user.knowPos) { mutableStateOf(child.user.knowPos) }
+    var knowPhonetic by remember(child.user.id, child.user.knowPhonetic) { mutableStateOf(child.user.knowPhonetic) }
     var saving by remember { mutableStateOf(false) }
 
     PanelCard {

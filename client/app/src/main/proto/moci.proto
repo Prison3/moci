@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package moci.v1;
+
+option java_package = "com.moci.words.grpc";
+option java_multiple_files = true;
+
+// 双向流：客户端维持长连接，服务端推送配置变更等事件。
+
+message ClientMessage {
+  oneof body {
+    Hello hello = 1;
+    Ping ping = 2;
+  }
+}
+
+message Hello {
+  string session = 1;
+}
+
+message Ping {}
+
+message ServerMessage {
+  oneof body {
+    Ready ready = 1;
+    SettingsUpdated settings_updated = 2;
+    Pong pong = 3;
+    Error error = 4;
+  }
+}
+
+message Ready {
+  int32 user_id = 1;
+}
+
+message UserSettings {
+  int32 id = 1;
+  string username = 2;
+  string role = 3;
+  string status = 4;
+  int32 daily_words = 5;
+  int32 daily_review = 6;
+  bool know_speak = 7;
+  bool know_spell = 8;
+  bool know_pos = 9;
+  bool know_phonetic = 10;
+}
+
+message SettingsUpdated {
+  UserSettings user = 1;
+}
+
+message Pong {}
+
+message Error {
+  string code = 1;
+  string message = 2;
+}
+
+service SyncService {
+  rpc Connect(stream ClientMessage) returns (stream ServerMessage);
+}
+
+// 统一 API 网关：将 REST 路由通过 gRPC 转发（登录及全部 /api/v1 接口）。
+
+message ApiInvokeRequest {
+  string method = 1;
+  string path = 2;
+  string session = 3;
+  string csrf_token = 4;
+  string body_json = 5;
+  map<string, string> query = 6;
+}
+
+message ApiInvokeResponse {
+  bool ok = 1;
+  string error = 2;
+  string message = 3;
+  string body_json = 4;
+  int32 http_status = 5;
+  string session = 6;
+  string csrf_token = 7;
+}
+
+service ApiService {
+  rpc Invoke(ApiInvokeRequest) returns (ApiInvokeResponse);
+}

@@ -302,7 +302,7 @@ fun AuthScreen(onLogin: (User) -> Unit) {
                     .border(1.dp, Line, RoundedCornerShape(12.dp))
                     .padding(14.dp),
             ) {
-                MociTextField(serverUrl, { serverUrl = it }, "server")
+                MociTextField(serverUrl, { serverUrl = it }, "server (gRPC)")
                 Spacer(Modifier.height(10.dp))
                 MociButton("save", kind = BtnKind.Ghost, modifier = Modifier.fillMaxWidth()) {
                     app.api.saveBaseUrl(serverUrl)

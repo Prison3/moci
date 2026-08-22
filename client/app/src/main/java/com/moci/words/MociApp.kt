@@ -14,7 +14,7 @@ class MociApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        api = ApiClient(this, BuildConfig.BASE_URL)
+        api = ApiClient(this, BuildConfig.BASE_URL, BuildConfig.GRPC_PORT)
         tts = MociTts(this)
         speech = MociSpeech(this)
     }

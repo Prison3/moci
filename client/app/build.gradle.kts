@@ -3,10 +3,14 @@ plugins {
     kotlin("android")
     kotlin("plugin.compose") version "2.1.0"
     id("com.google.devtools.ksp")
+    id("com.google.protobuf")
 }
 
 val mociBaseUrl: String = providers.gradleProperty("moci.baseUrl").getOrElse("http://10.0.2.2:5000")
 val mociCleartext: Boolean = providers.gradleProperty("moci.cleartext").getOrElse("false").toBoolean()
+val mociGrpcPort: Int = providers.gradleProperty("moci.grpcPort").getOrElse("50051").toInt()
+val grpcVersion = "1.68.1"
+val protobufVersion = "3.25.5"
 
 android {
     namespace = "com.moci.words"
@@ -20,6 +24,7 @@ android {
         versionName = "1.0.0"
 
         buildConfigField("String", "BASE_URL", "\"$mociBaseUrl\"")
+        buildConfigField("int", "GRPC_PORT", "$mociGrpcPort")
         manifestPlaceholders["mociCleartext"] = mociCleartext
 
         ndk {
@@ -60,6 +65,31 @@ kotlin {
     }
 }
 
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:$protobufVersion"
+    }
+    plugins {
+        create("grpc") {
+            artifact = "io.grpc:protoc-gen-grpc-java:$grpcVersion"
+        }
+    }
+    generateProtoTasks {
+        all().forEach { task ->
+            task.builtins {
+                create("java") {
+                    option("lite")
+                }
+            }
+            task.plugins {
+                create("grpc") {
+                    option("lite")
+                }
+            }
+        }
+    }
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.9.3")
@@ -73,6 +103,10 @@ dependencies {
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
+    implementation("io.grpc:grpc-okhttp:$grpcVersion")
+    implementation("io.grpc:grpc-protobuf-lite:$grpcVersion")
+    implementation("io.grpc:grpc-stub:$grpcVersion")
+    implementation("javax.annotation:javax.annotation-api:1.3.2")
     // 本地离线语音识别（英文）
     implementation("com.alphacephei:vosk-android:0.3.75")
     implementation("net.java.dev.jna:jna:5.18.1@aar")

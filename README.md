@@ -36,6 +36,7 @@ In the app on **Me**:
 
 - Python 3 + Flask
 - SQLite (default `server/instance/words.db`)
+- gRPC（`:50051`）：App 全部 `/api/v1` 接口（含登录）+ 双向流推送
 - Gunicorn for production
 - Mobile-first HTML/CSS (no frontend framework)
 - Android (Kotlin + Jetpack Compose)
@@ -49,8 +50,13 @@ cd server
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+./scripts/gen_proto.sh   # 首次或修改 proto/moci.proto 后
 python3 app.py
 ```
+
+Flask 监听 `5000`（Web 管理、APK 下载），gRPC 监听 `50051`（`GRPC_PORT`，App 全部 API）。生产环境需放行 **50051**；Web 管理还需 **5000**。
+
+Android App 经 gRPC `ApiService.Invoke` 调用业务接口，经 `SyncService` 双向流接收家长推送的 `settings_updated` 事件。
 
 Then open `http://127.0.0.1:5000`. The first visit creates tables if needed and a secret key under `server/instance/`.
 
@@ -139,5 +145,6 @@ server/
 | `DATABASE_PATH` | Optional path to the SQLite file. Default `server/instance/words.db`. |
 | `DATABASE_URL` | Optional `sqlite:///…` URL (overrides default path). |
 | `SECRET_KEY` | Optional env var. Otherwise `server/instance/secret_key` is generated. |
+| `GRPC_PORT` | gRPC 双向流端口，默认 `50051`。 |
 | `PORT` | Dev server port, default `5000`. |
 | Daily quota | `users.daily_words` (new) and `users.daily_review` (familiar). Parents edit both in the app. |

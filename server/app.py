@@ -2042,7 +2042,18 @@ def api_child_settings(child_id: int):
         ),
     )
     get_db().commit()
-    return jsonify({"ok": True, "message": "已保存学习设置。"})
+    child = get_db().execute("SELECT * FROM users WHERE id = ?", (child_id,)).fetchone()
+    from grpc_notify import push_settings_updated
+
+    push_settings_updated(child_id, _public_user(child))
+    return jsonify(
+        {
+            "ok": True,
+            "message": "已保存学习设置。",
+            "user": _public_user(child),
+            "task": today_task(child_id, child),
+        }
+    )
 
 
 @app.route("/api/v1/switch", methods=["POST"])
@@ -2452,9 +2463,17 @@ def api_admin_learning():
 def create_app() -> Flask:
     with app.app_context():
         init_db()
+    from grpc_server import start_grpc_server
+
+    start_grpc_server(app)
     return app
 
 
 if __name__ == "__main__":
     create_app()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")), debug=True)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", "5000")),
+        debug=True,
+        use_reloader=False,
+    )

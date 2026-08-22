@@ -20,13 +20,16 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -145,9 +148,20 @@ private fun MainScaffold(
     onUserChanged: (User) -> Unit,
     onLogout: () -> Unit,
 ) {
+    val app = LocalContext.current.applicationContext as MociApp
+    val scope = rememberCoroutineScope()
     val tabs = tabsFor(user)
     var currentTab by remember(user.id, user.role) { mutableStateOf(tabs.first().key) }
     var learningUserId by remember { mutableStateOf<Int?>(null) }
+
+    LaunchedEffect(user.id, user.isLearner) {
+        if (user.isLearner) {
+            app.api.onSettingsUpdated = { fresh -> onUserChanged(fresh) }
+            app.api.startSync(scope)
+        } else {
+            app.api.stopSync()
+        }
+    }
 
     // 学习页之外按返回键先回首页
     BackHandler(enabled = currentTab != "home") { currentTab = "home" }
@@ -171,11 +185,15 @@ private fun MainScaffold(
             when (currentTab) {
                 "home" -> HomeScreen(
                     user = user,
+                    settingsKey = user.settingsKey,
                     onStartStudy = { currentTab = "study" },
                     onUserChanged = onUserChanged,
                     onNavigate = { currentTab = it },
                 )
-                "study" -> StudyScreen(onExit = { currentTab = "home" })
+                "study" -> StudyScreen(
+                    settingsKey = user.settingsKey,
+                    onExit = { currentTab = "home" },
+                )
                 "me" -> MeScreen(
                     user = user,
                     onUserChanged = onUserChanged,

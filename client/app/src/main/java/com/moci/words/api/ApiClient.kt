@@ -5,15 +5,12 @@ import android.content.SharedPreferences
 import android.util.Log
 import com.moci.words.db.ApiCache
 import com.moci.words.db.MociDatabase
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 
 class ApiException(
     message: String,
@@ -27,11 +24,11 @@ interface SessionListener {
 }
 
 /**
- * /api/v1 客户端。认证基于 Flask session cookie，持久化到 SharedPreferences；
- * 写操作自动附带登录时获取的 X-CSRF-Token。
+ * /api/v1 客户端。认证基于 Flask session，持久化到 SharedPreferences。
+ * 全部 API（含登录）经 gRPC ApiService.Invoke 转发；实时推送走 SyncService 双向流。
  * GET 响应写入本地 Room（moci_cache.db），默认 30 分钟内复用，避免切 Tab 反复打服务器。
  */
-class ApiClient(context: Context, defaultBaseUrl: String) {
+class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: Int) {
 
     private val appContext = context.applicationContext
     private val prefs: SharedPreferences =
@@ -46,10 +43,18 @@ class ApiClient(context: Context, defaultBaseUrl: String) {
 
     var listener: SessionListener? = null
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .build()
+    var onSettingsUpdated: (suspend (User) -> Unit)? = null
+
+    private var grpcSync: GrpcSyncClient? = null
+    private var syncScope: CoroutineScope? = null
+
+    private fun grpcHost(): String = GrpcApiClient.hostFromBaseUrl(baseUrl)
+
+    private fun effectiveGrpcPort(): Int =
+        GrpcApiClient.portFromBaseUrl(baseUrl, grpcPort)
+
+    private val grpcApi: GrpcApiClient
+        get() = GrpcApiClient(grpcHost(), effectiveGrpcPort())
 
     var csrfToken: String?
         get() = prefs.getString("csrf", null)
@@ -88,6 +93,52 @@ class ApiClient(context: Context, defaultBaseUrl: String) {
     suspend fun invalidateLocalCache() = withContext(Dispatchers.IO) {
         val uid = cacheUserId()
         if (uid != 0) cache.clearUser(uid) else cache.clearAll()
+    }
+
+    /** 学生端：启动 gRPC 双向流，接收家长推送的设置变更。 */
+    fun startSync(scope: CoroutineScope) {
+        if (!hasSession || cachedUser?.isLearner != true) {
+            stopSync()
+            return
+        }
+        if (grpcSync != null) return
+        syncScope = scope
+        grpcSync = GrpcSyncClient(
+            host = grpcHost(),
+            port = effectiveGrpcPort(),
+            sessionProvider = { prefs.getString("session", null) },
+            onSettingsUpdated = { user ->
+                invalidateLearnerProgress()
+                cachedUser = user
+                onSettingsUpdated?.invoke(user)
+            },
+            onUnauthorized = {
+                cachedUser?.username?.let { rememberUsername(it) }
+                clearSession()
+                syncScope?.launch { clearCacheAfterSessionGone() }
+                listener?.onUnauthorized()
+            },
+        )
+        grpcSync?.start(scope)
+    }
+
+    fun stopSync() {
+        grpcSync?.stop()
+        grpcSync = null
+        syncScope = null
+    }
+
+    /** 学生端：拉取最新账号设置并清掉依赖设置的本地缓存。 */
+    suspend fun syncLearnerSettings(): User {
+        invalidateLearnerProgress()
+        return me()
+    }
+
+    private suspend fun invalidateParentProfile() {
+        val uid = cacheUserId()
+        if (uid == 0) return
+        cache.remove(uid, "profile")
+        cache.removePrefix(uid, "home:parent:")
     }
 
     private suspend fun invalidateLearnerProgress() {
@@ -185,58 +236,36 @@ class ApiClient(context: Context, defaultBaseUrl: String) {
         body: JSONObject? = null,
         query: Map<String, String?> = emptyMap(),
     ): JSONObject = withContext(Dispatchers.IO) {
-        val urlBuilder = StringBuilder(baseUrl.trimEnd('/') + path)
-        val params = query.filterValues { it != null }
-        if (params.isNotEmpty()) {
-            urlBuilder.append('?')
-            params.entries.joinTo(urlBuilder, "&") {
-                "${it.key}=${java.net.URLEncoder.encode(it.value, "UTF-8")}"
-            }
+        val result = grpcApi.invoke(
+            method = method,
+            path = path,
+            session = prefs.getString("session", null),
+            csrfToken = csrfToken,
+            bodyJson = body?.toString(),
+            query = query,
+        )
+        result.session?.let { value ->
+            prefs.edit().putString("session", value).apply()
         }
-        val builder = Request.Builder().url(urlBuilder.toString())
-        prefs.getString("session", null)?.let { builder.header("Cookie", "session=$it") }
-        when (method.uppercase()) {
-            "GET" -> builder.get()
-            "DELETE" -> builder.delete()
-            else -> {
-                csrfToken?.let { builder.header("X-CSRF-Token", it) }
-                val payload = (body ?: JSONObject()).toString()
-                    .toRequestBody("application/json; charset=utf-8".toMediaType())
-                if (method.uppercase() == "PUT") builder.put(payload) else builder.post(payload)
-            }
+        result.csrfToken?.let { csrfToken = it }
+        val json = runCatching { JSONObject(result.bodyJson.ifBlank { "{}" }) }.getOrElse {
+            throw ApiException("服务器响应异常（${result.httpStatus}）。", "bad_response", result.httpStatus)
         }
-        val response = runCatching { client.newCall(builder.build()).execute() }.getOrElse {
-            throw ApiException("无法连接服务器，请检查网络。", "network")
+        if (!result.ok || !json.optBoolean("ok")) {
+            val code = result.error.ifBlank { json.optString("error", "error") }
+            if (result.httpStatus == 401 || code == "unauthorized") {
+                cachedUser?.username?.let { rememberUsername(it) }
+                clearSession()
+                clearCacheAfterSessionGone()
+                withContext(Dispatchers.Main) { listener?.onUnauthorized() }
+            }
+            throw ApiException(
+                result.message.ifBlank { json.optString("message", "请求失败，请重试。") },
+                code,
+                result.httpStatus,
+            )
         }
-        response.use { resp ->
-            // Flask 通过 Set-Cookie 滚动更新 session，这里每次响应都保存最新值
-            resp.headers("Set-Cookie").forEach { header ->
-                val pair = header.substringBefore(';')
-                if (pair.startsWith("session=")) {
-                    val value = pair.removePrefix("session=")
-                    prefs.edit().putString("session", value).apply()
-                }
-            }
-            val text = resp.body?.string().orEmpty()
-            val json = runCatching { JSONObject(text) }.getOrElse {
-                throw ApiException("服务器响应异常（${resp.code}）。", "bad_response", resp.code)
-            }
-            if (!resp.isSuccessful || !json.optBoolean("ok")) {
-                val code = json.optString("error", "error")
-                if (resp.code == 401) {
-                    cachedUser?.username?.let { rememberUsername(it) }
-                    clearSession()
-                    clearCacheAfterSessionGone()
-                    withContext(Dispatchers.Main) { listener?.onUnauthorized() }
-                }
-                throw ApiException(
-                    json.optString("message", "请求失败，请重试。"),
-                    code,
-                    resp.code,
-                )
-            }
-            json
-        }
+        json
     }
 
     private fun saveAuth(json: JSONObject) {
@@ -278,6 +307,7 @@ class ApiClient(context: Context, defaultBaseUrl: String) {
     }
 
     suspend fun logout() {
+        stopSync()
         cachedUser?.username?.let { rememberUsername(it) }
         runCatching { execute("POST", "/api/v1/auth/logout") }
         clearSession()
@@ -383,7 +413,7 @@ class ApiClient(context: Context, defaultBaseUrl: String) {
             put("know_pos", knowPos)
             put("know_phonetic", knowPhonetic)
         })
-        invalidateLearnerProgress()
+        invalidateParentProfile()
         return json.optString("message", "已保存。")
     }
 

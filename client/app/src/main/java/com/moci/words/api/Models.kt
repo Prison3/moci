@@ -36,6 +36,10 @@ data class User(
         else -> "学生"
     }
 
+    /** 家长修改学习设置后，用于触发孩子端重新拉取数据。 */
+    val settingsKey: String
+        get() = "$dailyWords:$dailyReview:$knowSpeak:$knowSpell:$knowPos:$knowPhonetic"
+
     companion object {
         fun from(o: JSONObject) = User(
             id = o.getInt("id"),

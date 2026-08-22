@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +42,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(
     user: User,
+    settingsKey: String = user.settingsKey,
     onStartStudy: () -> Unit,
     onUserChanged: (User) -> Unit,
     onNavigate: (String) -> Unit = {},
@@ -48,7 +50,7 @@ fun HomeScreen(
     when {
         user.isAdmin -> AdminHomeScreen(onNavigate)
         user.isParent -> ParentHomeScreen()
-        else -> LearnerHomeScreen(onStartStudy)
+        else -> LearnerHomeScreen(settingsKey, onStartStudy)
     }
 }
 
@@ -56,9 +58,10 @@ fun HomeScreen(
 // 学生首页
 
 @Composable
-private fun LearnerHomeScreen(onStartStudy: () -> Unit) {
+private fun LearnerHomeScreen(settingsKey: String, onStartStudy: () -> Unit) {
     val app = LocalContext.current.applicationContext as MociApp
     val state = rememberData { homeLearner() }
+    LaunchedEffect(settingsKey) { state.reload() }
     val data = state.data
     var selectedDate by remember { mutableStateOf<String?>(null) }
     var dayWords by remember { mutableStateOf<List<DayWord>?>(null) }
