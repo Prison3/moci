@@ -1,35 +1,32 @@
-"""PostgreSQL 连接与表结构。SQL 仍可用 SQLite 风格的 `?` 占位符。"""
+"""SQLite 连接与表结构。"""
 
 from __future__ import annotations
 
 import os
-import re
+import sqlite3
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Sequence
 
-import psycopg
-from psycopg.rows import dict_row
-
-DEFAULT_DATABASE_URL = "postgresql://moci:moci@127.0.0.1:5432/moci"
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_DB_PATH = BASE_DIR / "instance" / "words.db"
 
 
-def database_url() -> str:
-    url = (os.environ.get("DATABASE_URL") or "").strip() or DEFAULT_DATABASE_URL
-    if url.startswith("postgres://"):
-        url = "postgresql://" + url[len("postgres://") :]
-    return url
-
-
-def _adapt_sql(sql: str) -> str:
-    sql = re.sub(r"(?<![:\w]):([A-Za-z_][A-Za-z0-9_]*)", r"%(\1)s", sql)
-    return sql.replace("?", "%s")
+def database_path() -> Path:
+    custom = (os.environ.get("DATABASE_PATH") or "").strip()
+    if custom:
+        return Path(custom)
+    url = (os.environ.get("DATABASE_URL") or "").strip()
+    if url.startswith("sqlite:///"):
+        return Path(url[len("sqlite:///") :])
+    return DEFAULT_DB_PATH
 
 
 class Database:
-    def __init__(self, conn: psycopg.Connection):
+    def __init__(self, conn: sqlite3.Connection):
         self._conn = conn
 
     def execute(self, sql: str, params: Sequence[Any] | dict | None = None):
-        sql = _adapt_sql(sql)
         if params is None:
             return self._conn.execute(sql)
         if isinstance(params, dict):
@@ -37,10 +34,7 @@ class Database:
         return self._conn.execute(sql, tuple(params))
 
     def executescript(self, script: str) -> None:
-        for raw in script.split(";"):
-            stmt = raw.strip()
-            if stmt:
-                self.execute(stmt)
+        self._conn.executescript(script)
 
     def commit(self) -> None:
         self._conn.commit()
@@ -53,37 +47,24 @@ class Database:
 
 
 def connect() -> Database:
-    try:
-        conn = psycopg.connect(database_url(), row_factory=dict_row)
-    except psycopg.Error as exc:
-        raise RuntimeError(
-            "无法连接 PostgreSQL。请设置 DATABASE_URL，"
-            f"或启动本地库（默认 {DEFAULT_DATABASE_URL}）。\n{exc}"
-        ) from exc
+    path = database_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
     return Database(conn)
 
 
 def _tables(db: Database) -> set[str]:
     rows = db.execute(
-        """
-        SELECT table_name
-        FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-        """
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
     ).fetchall()
-    return {row["table_name"] for row in rows}
+    return {row["name"] for row in rows}
 
 
 def _columns(db: Database, table: str) -> set[str]:
-    rows = db.execute(
-        """
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = ?
-        """,
-        (table,),
-    ).fetchall()
-    return {row["column_name"] for row in rows}
+    return {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
 
 
 def _add_column(db: Database, table: str, column: str, ddl: str) -> None:
@@ -91,20 +72,109 @@ def _add_column(db: Database, table: str, column: str, ddl: str) -> None:
         db.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
 
-def reset_id_sequence(db: Database, table: str) -> None:
-    row = db.execute(f"SELECT COALESCE(MAX(id), 0) AS n FROM {table}").fetchone()
-    n = int(row["n"] or 0)
+def _now_iso() -> str:
+    return datetime.now().replace(microsecond=0).isoformat(sep=" ")
+
+
+def _create_words_table(db: Database) -> None:
     db.execute(
-        "SELECT setval(pg_get_serial_sequence(?, 'id'), ?, ?)",
-        (f"public.{table}", max(n, 1), n > 0),
+        """
+        CREATE TABLE words (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            term TEXT NOT NULL,
+            phonetic TEXT NOT NULL DEFAULT '',
+            pos TEXT NOT NULL DEFAULT '',
+            meaning TEXT NOT NULL,
+            phrase TEXT NOT NULL DEFAULT '',
+            phrase_zh TEXT NOT NULL DEFAULT '',
+            example TEXT NOT NULL DEFAULT '',
+            example_zh TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            created_by INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+        )
+        """
     )
+
+
+def _migrate_legacy_words(db: Database) -> None:
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS words_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            term TEXT NOT NULL,
+            phonetic TEXT NOT NULL DEFAULT '',
+            pos TEXT NOT NULL DEFAULT '',
+            meaning TEXT NOT NULL,
+            phrase TEXT NOT NULL DEFAULT '',
+            phrase_zh TEXT NOT NULL DEFAULT '',
+            example TEXT NOT NULL DEFAULT '',
+            example_zh TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            created_by INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    old_words = db.execute("SELECT * FROM words ORDER BY id ASC").fetchall()
+    term_map: dict[str, int] = {}
+    for w in old_words:
+        key = (w["term"] or "").strip().lower()
+        if key not in term_map:
+            cur = db.execute(
+                """
+                INSERT INTO words_new (
+                    term, phonetic, pos, meaning, phrase, phrase_zh, example, example_zh,
+                    notes, created_by, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    w["term"],
+                    w["phonetic"],
+                    w["pos"] if "pos" in w.keys() else "",
+                    w["meaning"],
+                    w["phrase"] if "phrase" in w.keys() else "",
+                    w["phrase_zh"] if "phrase_zh" in w.keys() else "",
+                    w["example"],
+                    w["example_zh"] if "example_zh" in w.keys() else "",
+                    w["notes"],
+                    w["user_id"],
+                    w["created_at"],
+                    w["updated_at"],
+                ),
+            )
+            term_map[key] = cur.lastrowid
+        new_id = term_map[key]
+        db.execute(
+            """
+            INSERT OR IGNORE INTO progress (
+                user_id, word_id, status, review_count, correct_streak,
+                last_reviewed, next_review, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                w["user_id"],
+                new_id,
+                w["status"] or "new",
+                w["review_count"] or 0,
+                w["correct_streak"] or 0,
+                w["last_reviewed"],
+                w["next_review"],
+                w["updated_at"] or _now_iso(),
+            ),
+        )
+    db.execute("DROP TABLE words")
+    db.execute("ALTER TABLE words_new RENAME TO words")
 
 
 def init_schema(db: Database) -> None:
     db.execute(
         """
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'user',
@@ -118,82 +188,65 @@ def init_schema(db: Database) -> None:
         """
     )
     _add_column(db, "users", "role", "role TEXT NOT NULL DEFAULT 'user'")
-    _add_column(db, "users", "status", "status TEXT NOT NULL DEFAULT 'pending'")
+    if "status" not in _columns(db, "users"):
+        db.execute(
+            "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'"
+        )
+        db.execute(
+            "UPDATE users SET status = ? WHERE status IS NULL OR status = '' OR status = ?",
+            ("approved", "pending"),
+        )
+        db.execute(
+            "UPDATE users SET status = ? WHERE role = ?",
+            ("approved", "admin"),
+        )
     _add_column(db, "users", "daily_words", "daily_words INTEGER NOT NULL DEFAULT 8")
-    _add_column(
-        db, "users", "daily_review", "daily_review INTEGER NOT NULL DEFAULT 8"
-    )
+    _add_column(db, "users", "daily_review", "daily_review INTEGER NOT NULL DEFAULT 8")
     _add_column(db, "users", "know_speak", "know_speak INTEGER NOT NULL DEFAULT 1")
     _add_column(db, "users", "know_spell", "know_spell INTEGER NOT NULL DEFAULT 1")
 
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS words (
-            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-            term TEXT NOT NULL,
-            phonetic TEXT NOT NULL DEFAULT '',
-            pos TEXT NOT NULL DEFAULT '',
-            meaning TEXT NOT NULL,
-            phrase TEXT NOT NULL DEFAULT '',
-            phrase_zh TEXT NOT NULL DEFAULT '',
-            example TEXT NOT NULL DEFAULT '',
-            example_zh TEXT NOT NULL DEFAULT '',
-            notes TEXT NOT NULL DEFAULT '',
-            created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-        """
-    )
-    _add_column(db, "words", "phrase", "phrase TEXT NOT NULL DEFAULT ''")
-    _add_column(db, "words", "phrase_zh", "phrase_zh TEXT NOT NULL DEFAULT ''")
-    _add_column(db, "words", "example_zh", "example_zh TEXT NOT NULL DEFAULT ''")
-    _add_column(db, "words", "pos", "pos TEXT NOT NULL DEFAULT ''")
+    if "words" not in _tables(db):
+        _create_words_table(db)
+    elif "user_id" in _columns(db, "words"):
+        _migrate_legacy_words(db)
 
-    db.execute(
+    db.executescript(
         """
         CREATE TABLE IF NOT EXISTS progress (
-            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            word_id INTEGER NOT NULL REFERENCES words(id) ON DELETE CASCADE,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            word_id INTEGER NOT NULL,
             status TEXT NOT NULL DEFAULT 'new',
             review_count INTEGER NOT NULL DEFAULT 0,
             correct_streak INTEGER NOT NULL DEFAULT 0,
             last_reviewed TEXT,
             next_review TEXT,
             updated_at TEXT NOT NULL,
-            UNIQUE (user_id, word_id)
-        )
-        """
-    )
-    db.execute(
-        """
+            UNIQUE (user_id, word_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (word_id) REFERENCES words(id) ON DELETE CASCADE
+        );
         CREATE TABLE IF NOT EXISTS review_logs (
-            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            word_id INTEGER NOT NULL REFERENCES words(id) ON DELETE CASCADE,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            word_id INTEGER NOT NULL,
             rating TEXT NOT NULL,
             kind TEXT NOT NULL DEFAULT 'new',
-            created_at TEXT NOT NULL
-        )
-        """
-    )
-    _add_column(db, "review_logs", "kind", "kind TEXT NOT NULL DEFAULT 'new'")
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS parent_children (
-            parent_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            child_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             created_at TEXT NOT NULL,
-            PRIMARY KEY (parent_id, child_id)
-        )
-        """
-    )
-    db.execute(
-        """
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (word_id) REFERENCES words(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS parent_children (
+            parent_id INTEGER NOT NULL,
+            child_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (parent_id, child_id),
+            FOREIGN KEY (parent_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (child_id) REFERENCES users(id) ON DELETE CASCADE
+        );
         CREATE TABLE IF NOT EXISTS daily_results (
-            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
             study_date TEXT NOT NULL,
             new_quota INTEGER NOT NULL DEFAULT 0,
             review_quota INTEGER NOT NULL DEFAULT 0,
@@ -208,20 +261,20 @@ def init_schema(db: Database) -> None:
             first_at TEXT,
             last_at TEXT,
             updated_at TEXT NOT NULL,
-            UNIQUE (user_id, study_date)
-        )
+            UNIQUE (user_id, study_date),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_words_term ON words (term);
+        CREATE INDEX IF NOT EXISTS idx_progress_due ON progress (user_id, next_review);
+        CREATE INDEX IF NOT EXISTS idx_review_logs_day ON review_logs (user_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_daily_results_date ON daily_results (study_date);
         """
     )
-    db.execute("CREATE INDEX IF NOT EXISTS idx_words_term ON words (term)")
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_progress_due ON progress (user_id, next_review)"
-    )
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_review_logs_day ON review_logs (user_id, created_at)"
-    )
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_daily_results_date ON daily_results (study_date)"
-    )
+    _add_column(db, "review_logs", "kind", "kind TEXT NOT NULL DEFAULT 'new'")
+    _add_column(db, "words", "phrase", "phrase TEXT NOT NULL DEFAULT ''")
+    _add_column(db, "words", "phrase_zh", "phrase_zh TEXT NOT NULL DEFAULT ''")
+    _add_column(db, "words", "example_zh", "example_zh TEXT NOT NULL DEFAULT ''")
+    _add_column(db, "words", "pos", "pos TEXT NOT NULL DEFAULT ''")
 
     admin_n = db.execute(
         "SELECT COUNT(*) AS n FROM users WHERE role = ?", ("admin",)

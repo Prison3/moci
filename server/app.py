@@ -770,7 +770,7 @@ def list_words(user_id: int, q: str = "", status: str = ""):
     """
     params: list = [user_id]
     if q:
-        sql += " AND (w.term ILIKE ? OR w.meaning ILIKE ? OR w.phonetic ILIKE ? OR w.phrase ILIKE ? OR w.example ILIKE ?)"
+        sql += " AND (w.term LIKE ? OR w.meaning LIKE ? OR w.phonetic LIKE ? OR w.phrase LIKE ? OR w.example LIKE ?)"
         like = f"%{q}%"
         params.extend([like, like, like, like, like])
     if status in {"new", "learning", "mastered"}:
@@ -784,7 +784,7 @@ def list_library(q: str = ""):
     sql = "SELECT * FROM words WHERE 1 = 1"
     params: list = []
     if q:
-        sql += " AND (term ILIKE ? OR meaning ILIKE ? OR phonetic ILIKE ? OR COALESCE(phrase,'') ILIKE ? OR example ILIKE ?)"
+        sql += " AND (term LIKE ? OR meaning LIKE ? OR phonetic LIKE ? OR COALESCE(phrase,'') LIKE ? OR example LIKE ?)"
         like = f"%{q}%"
         params.extend([like, like, like, like, like])
     sql += " ORDER BY updated_at DESC"
