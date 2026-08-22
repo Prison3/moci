@@ -515,7 +515,7 @@ def month_study_calendar(user_id: int, user=None) -> dict:
     end = (nxt - timedelta(seconds=1)).strftime("%Y-%m-%d %H:%M:%S")
     rows = get_db().execute(
         """
-        SELECT LEFT(created_at, 10) AS day,
+        SELECT SUBSTR(created_at, 1, 10) AS day,
                COALESCE(kind, 'new') AS kind,
                COUNT(DISTINCT word_id) AS words
         FROM review_logs
@@ -625,9 +625,9 @@ def month_learning_calendar(
             params.extend(allowed_ids)
         rows = get_db().execute(
             f"""
-            SELECT LEFT(created_at, 10) AS day,
-                   COUNT(DISTINCT CASE WHEN COALESCE(kind, 'new') = 'new' THEN CONCAT(user_id, ':', word_id) END) AS new_n,
-                   COUNT(DISTINCT CASE WHEN kind = 'review' THEN CONCAT(user_id, ':', word_id) END) AS review_n,
+            SELECT SUBSTR(created_at, 1, 10) AS day,
+                   COUNT(DISTINCT CASE WHEN COALESCE(kind, 'new') = 'new' THEN user_id || ':' || word_id END) AS new_n,
+                   COUNT(DISTINCT CASE WHEN kind = 'review' THEN user_id || ':' || word_id END) AS review_n,
                    COUNT(DISTINCT user_id) AS learners
             FROM review_logs
             WHERE created_at >= ? AND created_at <= ?{extra}
