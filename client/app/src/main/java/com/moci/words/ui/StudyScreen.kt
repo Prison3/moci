@@ -382,15 +382,6 @@ fun StudyScreen(onExit: () -> Unit) {
                 LaunchedEffect(stage, needSpeak, needSpell, card.id, hideView) {
                     hideLog("compose $hideLine")
                 }
-                Text(
-                    hideLine,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Cinnabar,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 6.dp),
-                )
                 when (stage) {
                     CheckStage.None -> {
                         FlashCard(card, Modifier.weight(1f))
