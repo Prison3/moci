@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -154,13 +155,16 @@ private fun MainScaffold(
     var currentTab by remember(user.id, user.role) { mutableStateOf(tabs.first().key) }
     var learningUserId by remember { mutableStateOf<Int?>(null) }
 
-    LaunchedEffect(user.id, user.isLearner) {
-        if (user.isLearner) {
-            app.api.onSettingsUpdated = { fresh -> onUserChanged(fresh) }
-            app.api.startSync(scope)
+    var wordsKey by remember { mutableLongStateOf(app.api.wordsSyncKey) }
+
+    LaunchedEffect(user.id) {
+        app.api.onSettingsUpdated = if (user.isLearner) {
+            { fresh -> onUserChanged(fresh) }
         } else {
-            app.api.stopSync()
+            null
         }
+        app.api.onWordsUpdated = { wordsKey = app.api.wordsSyncKey }
+        app.api.startSync(scope)
     }
 
     // 学习页之外按返回键先回首页
@@ -186,12 +190,14 @@ private fun MainScaffold(
                 "home" -> HomeScreen(
                     user = user,
                     settingsKey = user.settingsKey,
+                    wordsKey = wordsKey,
                     onStartStudy = { currentTab = "study" },
                     onUserChanged = onUserChanged,
                     onNavigate = { currentTab = it },
                 )
                 "study" -> StudyScreen(
                     settingsKey = user.settingsKey,
+                    wordsKey = wordsKey,
                     onExit = { currentTab = "home" },
                 )
                 "me" -> MeScreen(
@@ -199,7 +205,7 @@ private fun MainScaffold(
                     onUserChanged = onUserChanged,
                     onLogout = onLogout,
                 )
-                "words" -> WordsScreen()
+                "words" -> WordsScreen(wordsKey = wordsKey)
                 "users" -> UsersScreen(onGotoLearning = { uid ->
                     learningUserId = uid
                     currentTab = "learning"

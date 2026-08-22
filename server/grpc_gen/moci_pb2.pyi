@@ -25,16 +25,18 @@ class Ping(_message.Message):
     def __init__(self) -> None: ...
 
 class ServerMessage(_message.Message):
-    __slots__ = ("ready", "settings_updated", "pong", "error")
+    __slots__ = ("ready", "settings_updated", "pong", "error", "words_updated")
     READY_FIELD_NUMBER: _ClassVar[int]
     SETTINGS_UPDATED_FIELD_NUMBER: _ClassVar[int]
     PONG_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
+    WORDS_UPDATED_FIELD_NUMBER: _ClassVar[int]
     ready: Ready
     settings_updated: SettingsUpdated
     pong: Pong
     error: Error
-    def __init__(self, ready: _Optional[_Union[Ready, _Mapping]] = ..., settings_updated: _Optional[_Union[SettingsUpdated, _Mapping]] = ..., pong: _Optional[_Union[Pong, _Mapping]] = ..., error: _Optional[_Union[Error, _Mapping]] = ...) -> None: ...
+    words_updated: WordsUpdated
+    def __init__(self, ready: _Optional[_Union[Ready, _Mapping]] = ..., settings_updated: _Optional[_Union[SettingsUpdated, _Mapping]] = ..., pong: _Optional[_Union[Pong, _Mapping]] = ..., error: _Optional[_Union[Error, _Mapping]] = ..., words_updated: _Optional[_Union[WordsUpdated, _Mapping]] = ...) -> None: ...
 
 class Ready(_message.Message):
     __slots__ = ("user_id",)
@@ -71,6 +73,14 @@ class SettingsUpdated(_message.Message):
     USER_FIELD_NUMBER: _ClassVar[int]
     user: UserSettings
     def __init__(self, user: _Optional[_Union[UserSettings, _Mapping]] = ...) -> None: ...
+
+class WordsUpdated(_message.Message):
+    __slots__ = ("action", "word_id")
+    ACTION_FIELD_NUMBER: _ClassVar[int]
+    WORD_ID_FIELD_NUMBER: _ClassVar[int]
+    action: str
+    word_id: int
+    def __init__(self, action: _Optional[str] = ..., word_id: _Optional[int] = ...) -> None: ...
 
 class Pong(_message.Message):
     __slots__ = ()

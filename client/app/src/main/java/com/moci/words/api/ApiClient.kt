@@ -45,6 +45,12 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
 
     var onSettingsUpdated: (suspend (User) -> Unit)? = null
 
+    var onWordsUpdated: (suspend () -> Unit)? = null
+
+    @Volatile
+    var wordsSyncKey: Long = 0
+        private set
+
     private var grpcSync: GrpcSyncClient? = null
     private var syncScope: CoroutineScope? = null
 
@@ -95,9 +101,9 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
         if (uid != 0) cache.clearUser(uid) else cache.clearAll()
     }
 
-    /** 学生端：启动 gRPC 双向流，接收家长推送的设置变更。 */
+    /** 启动 gRPC 双向流，接收服务端推送（设置变更、词库变更）。 */
     fun startSync(scope: CoroutineScope) {
-        if (!hasSession || cachedUser?.isLearner != true) {
+        if (!hasSession) {
             stopSync()
             return
         }
@@ -107,10 +113,18 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
             host = grpcHost(),
             port = effectiveGrpcPort(),
             sessionProvider = { prefs.getString("session", null) },
-            onSettingsUpdated = { user ->
-                invalidateLearnerProgress()
-                cachedUser = user
-                onSettingsUpdated?.invoke(user)
+            onSettingsUpdated = if (cachedUser?.isLearner == true) {
+                { user ->
+                    invalidateLearnerProgress()
+                    cachedUser = user
+                    onSettingsUpdated?.invoke(user)
+                }
+            } else {
+                null
+            },
+            onWordsUpdated = {
+                invalidateWordsLibrary()
+                onWordsUpdated?.invoke()
             },
             onUnauthorized = {
                 cachedUser?.username?.let { rememberUsername(it) }
@@ -150,6 +164,20 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
         cache.removePrefix(uid, "study-day:")
         cache.removePrefix(uid, "my-words:")
         cache.removePrefix(uid, "home:parent:")
+    }
+
+    suspend fun invalidateWordsLibrary() {
+        val uid = cacheUserId()
+        if (uid != 0) {
+            cache.removePrefix(uid, "words:")
+            cache.remove(uid, "home:admin")
+            cache.remove(uid, "home:learner")
+            cache.remove(uid, "review:cards")
+            cache.removePrefix(uid, "study-day:")
+            cache.removePrefix(uid, "my-words:")
+            cache.removePrefix(uid, "home:parent:")
+        }
+        wordsSyncKey++
     }
 
     /**

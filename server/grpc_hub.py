@@ -38,3 +38,13 @@ def publish(user_id: int, message: moci_pb2.ServerMessage) -> None:
             q.put_nowait(message)
         except queue.Full:
             pass
+
+
+def publish_all(message: moci_pb2.ServerMessage) -> None:
+    with _lock:
+        queues = [q for streams in _streams.values() for q in streams]
+    for q in queues:
+        try:
+            q.put_nowait(message)
+        except queue.Full:
+            pass

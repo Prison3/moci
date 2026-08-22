@@ -26,6 +26,7 @@ message ServerMessage {
     SettingsUpdated settings_updated = 2;
     Pong pong = 3;
     Error error = 4;
+    WordsUpdated words_updated = 5;
   }
 }
 
@@ -48,6 +49,11 @@ message UserSettings {
 
 message SettingsUpdated {
   UserSettings user = 1;
+}
+
+message WordsUpdated {
+  string action = 1;  // created | updated | deleted
+  int32 word_id = 2;
 }
 
 message Pong {}

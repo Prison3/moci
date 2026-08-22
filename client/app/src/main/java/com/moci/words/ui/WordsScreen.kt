@@ -27,6 +27,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,7 +55,7 @@ private sealed interface WordsView {
 
 /** 管理员词库：搜索列表 / 详情 / 新建与编辑。 */
 @Composable
-fun WordsScreen() {
+fun WordsScreen(wordsKey: Long = 0L) {
     val app = LocalContext.current.applicationContext as MociApp
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -82,7 +83,7 @@ fun WordsScreen() {
             loading = false
         }
     }
-    androidx.compose.runtime.LaunchedEffect(Unit) { load() }
+    LaunchedEffect(wordsKey) { load() }
 
     when (val v = view) {
         is WordsView.Form -> WordForm(

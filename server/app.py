@@ -1145,6 +1145,7 @@ def word_new():
             ),
         )
         get_db().commit()
+        _notify_words_updated("created")
         flash(f"已录入「{data['term']}」，所有用户都可以开始学习。", "ok")
         if request.form.get("again") == "1":
             return redirect(url_for("word_new"))
@@ -1212,6 +1213,7 @@ def word_edit(word_id: int):
             ),
         )
         get_db().commit()
+        _notify_words_updated("updated", word_id)
         flash("已保存修改。", "ok")
         return redirect(url_for("word_detail", word_id=word_id))
     return render_template("word_form.html", word=word, mode="edit")
@@ -1225,6 +1227,8 @@ def word_delete(word_id: int):
         return redirect(url_for("words"))
     cur = get_db().execute("DELETE FROM words WHERE id = ?", (word_id,))
     get_db().commit()
+    if cur.rowcount:
+        _notify_words_updated("deleted", word_id)
     flash("已删除。" if cur.rowcount else "找不到这个单词。", "ok" if cur.rowcount else "error")
     return redirect(url_for("words"))
 
@@ -1274,6 +1278,7 @@ def word_quick():
         ),
     )
     get_db().commit()
+    _notify_words_updated("created")
     flash(f"已录入「{data['term']}」。", "ok")
     return redirect(url_for("words"))
 
@@ -1517,6 +1522,12 @@ def _parse_word_form(require_meaning: bool = True) -> dict:
 # 登录、切换账号、me 的响应里会下发当前会话的 csrf_token。
 # 响应统一为 {"ok": true, ...} 或 {"ok": false, "error": 代码, "message": 文案}。
 # ---------------------------------------------------------------------------
+
+
+def _notify_words_updated(action: str, word_id: int = 0) -> None:
+    from grpc_notify import push_words_updated
+
+    push_words_updated(action, word_id)
 
 
 def api_error(message: str, status: int = 400, code: str = "error"):
@@ -2205,6 +2216,7 @@ def api_word_create():
     )
     new_id = cur.fetchone()["id"]
     db.commit()
+    _notify_words_updated("created", new_id)
     word = db.execute("SELECT * FROM words WHERE id = ?", (new_id,)).fetchone()
     return jsonify(
         {
@@ -2263,6 +2275,7 @@ def api_word_update(word_id: int):
         ),
     )
     db.commit()
+    _notify_words_updated("updated", word_id)
     word = db.execute("SELECT * FROM words WHERE id = ?", (word_id,)).fetchone()
     return jsonify(
         {"ok": True, "word": _word_payload(word), "message": "已保存修改。"}
@@ -2279,6 +2292,7 @@ def api_word_delete(word_id: int):
     get_db().commit()
     if not cur.rowcount:
         return api_error("找不到这个单词。", 404, "not_found")
+    _notify_words_updated("deleted", word_id)
     return jsonify({"ok": True, "message": "已删除。"})
 
 

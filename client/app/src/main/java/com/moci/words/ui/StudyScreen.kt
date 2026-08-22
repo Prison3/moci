@@ -73,7 +73,7 @@ private fun hideLog(msg: String) {
 
 /** 学习页：闪卡 + 「学会」前的词性 / 朗读 / 音标 / 默写检查。 */
 @Composable
-fun StudyScreen(settingsKey: String, onExit: () -> Unit) {
+fun StudyScreen(settingsKey: String, wordsKey: Long, onExit: () -> Unit) {
     val app = LocalContext.current.applicationContext as MociApp
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -123,7 +123,7 @@ fun StudyScreen(settingsKey: String, onExit: () -> Unit) {
             loading = false
         }
     }
-    LaunchedEffect(settingsKey) { load(force = true) }
+    LaunchedEffect(settingsKey, wordsKey) { load(force = true) }
 
     BackHandler { onExit() }
 

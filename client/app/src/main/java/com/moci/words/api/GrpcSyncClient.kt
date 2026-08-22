@@ -19,13 +19,14 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 /**
- * gRPC 双向流：维持长连接，接收服务端推送的学习设置变更。
+ * gRPC 双向流：维持长连接，接收服务端推送（设置变更、词库变更等）。
  */
 class GrpcSyncClient(
     private val host: String,
     private val port: Int,
     private val sessionProvider: () -> String?,
-    private val onSettingsUpdated: suspend (User) -> Unit,
+    private val onSettingsUpdated: (suspend (User) -> Unit)? = null,
+    private val onWordsUpdated: (suspend () -> Unit)? = null,
     private val onUnauthorized: () -> Unit,
 ) {
     private var streamJob: Job? = null
@@ -94,7 +95,12 @@ class GrpcSyncClient(
                             knowPhonetic = u.knowPhonetic,
                         )
                         scope.launch {
-                            runCatching { onSettingsUpdated(user) }
+                            runCatching { onSettingsUpdated?.invoke(user) }
+                        }
+                    }
+                    ServerMessage.BodyCase.WORDS_UPDATED -> {
+                        scope.launch {
+                            runCatching { onWordsUpdated?.invoke() }
                         }
                     }
                     ServerMessage.BodyCase.ERROR -> {

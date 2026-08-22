@@ -43,14 +43,15 @@ import kotlinx.coroutines.launch
 fun HomeScreen(
     user: User,
     settingsKey: String = user.settingsKey,
+    wordsKey: Long = 0L,
     onStartStudy: () -> Unit,
     onUserChanged: (User) -> Unit,
     onNavigate: (String) -> Unit = {},
 ) {
     when {
-        user.isAdmin -> AdminHomeScreen(onNavigate)
-        user.isParent -> ParentHomeScreen()
-        else -> LearnerHomeScreen(settingsKey, onStartStudy)
+        user.isAdmin -> AdminHomeScreen(wordsKey, onNavigate)
+        user.isParent -> ParentHomeScreen(wordsKey)
+        else -> LearnerHomeScreen(settingsKey, wordsKey, onStartStudy)
     }
 }
 
@@ -58,10 +59,10 @@ fun HomeScreen(
 // 学生首页
 
 @Composable
-private fun LearnerHomeScreen(settingsKey: String, onStartStudy: () -> Unit) {
+private fun LearnerHomeScreen(settingsKey: String, wordsKey: Long, onStartStudy: () -> Unit) {
     val app = LocalContext.current.applicationContext as MociApp
     val state = rememberData { homeLearner() }
-    LaunchedEffect(settingsKey) { state.reload() }
+    LaunchedEffect(settingsKey, wordsKey) { state.reload() }
     val data = state.data
     var selectedDate by remember { mutableStateOf<String?>(null) }
     var dayWords by remember { mutableStateOf<List<DayWord>?>(null) }
@@ -79,6 +80,7 @@ private fun LearnerHomeScreen(settingsKey: String, onStartStudy: () -> Unit) {
         ProgressWordsScreen(
             status = filter.first,
             title = filter.second,
+            wordsKey = wordsKey,
             onBack = { wordFilter = null },
         )
         return
@@ -194,7 +196,7 @@ private fun calDetailText(cell: CalCell, newQuota: Int, reviewQuota: Int): Strin
 // 家长首页
 
 @Composable
-private fun ParentHomeScreen() {
+private fun ParentHomeScreen(wordsKey: Long) {
     val app = LocalContext.current.applicationContext as MociApp
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -224,7 +226,7 @@ private fun ParentHomeScreen() {
             loading = false
         }
     }
-    androidx.compose.runtime.LaunchedEffect(Unit) { load() }
+    LaunchedEffect(wordsKey) { load() }
 
     val d = data
     when {
@@ -351,11 +353,12 @@ private fun ChildCard(child: com.moci.words.api.ChildInfo, selected: Boolean) {
 // 管理员首页
 
 @Composable
-private fun AdminHomeScreen(onNavigate: (String) -> Unit) {
+private fun AdminHomeScreen(wordsKey: Long, onNavigate: (String) -> Unit) {
     val app = LocalContext.current.applicationContext as MociApp
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state = rememberData { homeAdmin() }
+    LaunchedEffect(wordsKey) { state.reload() }
     val data = state.data
 
     fun act(action: suspend () -> String) {

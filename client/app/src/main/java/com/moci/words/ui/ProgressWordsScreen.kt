@@ -24,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +55,7 @@ private fun statusLabel(status: String) = when (status) {
 fun ProgressWordsScreen(
     status: String,
     title: String,
+    wordsKey: Long = 0L,
     onBack: () -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as MociApp
@@ -81,7 +83,7 @@ fun ProgressWordsScreen(
             loading = false
         }
     }
-    androidx.compose.runtime.LaunchedEffect(status) { load() }
+    LaunchedEffect(status, wordsKey) { load() }
     BackHandler(onBack = {
         if (detail != null) detail = null else onBack()
     })

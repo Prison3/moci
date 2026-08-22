@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\nmoci.proto\x12\x07moci.v1\"W\n\rClientMessage\x12\x1f\n\x05hello\x18\x01 \x01(\x0b\x32\x0e.moci.v1.HelloH\x00\x12\x1d\n\x04ping\x18\x02 \x01(\x0b\x32\r.moci.v1.PingH\x00\x42\x06\n\x04\x62ody\"\x18\n\x05Hello\x12\x0f\n\x07session\x18\x01 \x01(\t\"\x06\n\x04Ping\"\xae\x01\n\rServerMessage\x12\x1f\n\x05ready\x18\x01 \x01(\x0b\x32\x0e.moci.v1.ReadyH\x00\x12\x34\n\x10settings_updated\x18\x02 \x01(\x0b\x32\x18.moci.v1.SettingsUpdatedH\x00\x12\x1d\n\x04pong\x18\x03 \x01(\x0b\x32\r.moci.v1.PongH\x00\x12\x1f\n\x05\x65rror\x18\x04 \x01(\x0b\x32\x0e.moci.v1.ErrorH\x00\x42\x06\n\x04\x62ody\"\x18\n\x05Ready\x12\x0f\n\x07user_id\x18\x01 \x01(\x05\"\xc6\x01\n\x0cUserSettings\x12\n\n\x02id\x18\x01 \x01(\x05\x12\x10\n\x08username\x18\x02 \x01(\t\x12\x0c\n\x04role\x18\x03 \x01(\t\x12\x0e\n\x06status\x18\x04 \x01(\t\x12\x13\n\x0b\x64\x61ily_words\x18\x05 \x01(\x05\x12\x14\n\x0c\x64\x61ily_review\x18\x06 \x01(\x05\x12\x12\n\nknow_speak\x18\x07 \x01(\x08\x12\x12\n\nknow_spell\x18\x08 \x01(\x08\x12\x10\n\x08know_pos\x18\t \x01(\x08\x12\x15\n\rknow_phonetic\x18\n \x01(\x08\"6\n\x0fSettingsUpdated\x12#\n\x04user\x18\x01 \x01(\x0b\x32\x15.moci.v1.UserSettings\"\x06\n\x04Pong\"&\n\x05\x45rror\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t\"\xcb\x01\n\x10\x41piInvokeRequest\x12\x0e\n\x06method\x18\x01 \x01(\t\x12\x0c\n\x04path\x18\x02 \x01(\t\x12\x0f\n\x07session\x18\x03 \x01(\t\x12\x12\n\ncsrf_token\x18\x04 \x01(\t\x12\x11\n\tbody_json\x18\x05 \x01(\t\x12\x33\n\x05query\x18\x06 \x03(\x0b\x32$.moci.v1.ApiInvokeRequest.QueryEntry\x1a,\n\nQueryEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\x8c\x01\n\x11\x41piInvokeResponse\x12\n\n\x02ok\x18\x01 \x01(\x08\x12\r\n\x05\x65rror\x18\x02 \x01(\t\x12\x0f\n\x07message\x18\x03 \x01(\t\x12\x11\n\tbody_json\x18\x04 \x01(\t\x12\x13\n\x0bhttp_status\x18\x05 \x01(\x05\x12\x0f\n\x07session\x18\x06 \x01(\t\x12\x12\n\ncsrf_token\x18\x07 \x01(\t2L\n\x0bSyncService\x12=\n\x07\x43onnect\x12\x16.moci.v1.ClientMessage\x1a\x16.moci.v1.ServerMessage(\x01\x30\x01\x32M\n\nApiService\x12?\n\x06Invoke\x12\x19.moci.v1.ApiInvokeRequest\x1a\x1a.moci.v1.ApiInvokeResponseB\x17\n\x13\x63om.moci.words.grpcP\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\nmoci.proto\x12\x07moci.v1\"W\n\rClientMessage\x12\x1f\n\x05hello\x18\x01 \x01(\x0b\x32\x0e.moci.v1.HelloH\x00\x12\x1d\n\x04ping\x18\x02 \x01(\x0b\x32\r.moci.v1.PingH\x00\x42\x06\n\x04\x62ody\"\x18\n\x05Hello\x12\x0f\n\x07session\x18\x01 \x01(\t\"\x06\n\x04Ping\"\xde\x01\n\rServerMessage\x12\x1f\n\x05ready\x18\x01 \x01(\x0b\x32\x0e.moci.v1.ReadyH\x00\x12\x34\n\x10settings_updated\x18\x02 \x01(\x0b\x32\x18.moci.v1.SettingsUpdatedH\x00\x12\x1d\n\x04pong\x18\x03 \x01(\x0b\x32\r.moci.v1.PongH\x00\x12\x1f\n\x05\x65rror\x18\x04 \x01(\x0b\x32\x0e.moci.v1.ErrorH\x00\x12.\n\rwords_updated\x18\x05 \x01(\x0b\x32\x15.moci.v1.WordsUpdatedH\x00\x42\x06\n\x04\x62ody\"\x18\n\x05Ready\x12\x0f\n\x07user_id\x18\x01 \x01(\x05\"\xc6\x01\n\x0cUserSettings\x12\n\n\x02id\x18\x01 \x01(\x05\x12\x10\n\x08username\x18\x02 \x01(\t\x12\x0c\n\x04role\x18\x03 \x01(\t\x12\x0e\n\x06status\x18\x04 \x01(\t\x12\x13\n\x0b\x64\x61ily_words\x18\x05 \x01(\x05\x12\x14\n\x0c\x64\x61ily_review\x18\x06 \x01(\x05\x12\x12\n\nknow_speak\x18\x07 \x01(\x08\x12\x12\n\nknow_spell\x18\x08 \x01(\x08\x12\x10\n\x08know_pos\x18\t \x01(\x08\x12\x15\n\rknow_phonetic\x18\n \x01(\x08\"6\n\x0fSettingsUpdated\x12#\n\x04user\x18\x01 \x01(\x0b\x32\x15.moci.v1.UserSettings\"/\n\x0cWordsUpdated\x12\x0e\n\x06\x61\x63tion\x18\x01 \x01(\t\x12\x0f\n\x07word_id\x18\x02 \x01(\x05\"\x06\n\x04Pong\"&\n\x05\x45rror\x12\x0c\n\x04\x63ode\x18\x01 \x01(\t\x12\x0f\n\x07message\x18\x02 \x01(\t\"\xcb\x01\n\x10\x41piInvokeRequest\x12\x0e\n\x06method\x18\x01 \x01(\t\x12\x0c\n\x04path\x18\x02 \x01(\t\x12\x0f\n\x07session\x18\x03 \x01(\t\x12\x12\n\ncsrf_token\x18\x04 \x01(\t\x12\x11\n\tbody_json\x18\x05 \x01(\t\x12\x33\n\x05query\x18\x06 \x03(\x0b\x32$.moci.v1.ApiInvokeRequest.QueryEntry\x1a,\n\nQueryEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\x8c\x01\n\x11\x41piInvokeResponse\x12\n\n\x02ok\x18\x01 \x01(\x08\x12\r\n\x05\x65rror\x18\x02 \x01(\t\x12\x0f\n\x07message\x18\x03 \x01(\t\x12\x11\n\tbody_json\x18\x04 \x01(\t\x12\x13\n\x0bhttp_status\x18\x05 \x01(\x05\x12\x0f\n\x07session\x18\x06 \x01(\t\x12\x12\n\ncsrf_token\x18\x07 \x01(\t2L\n\x0bSyncService\x12=\n\x07\x43onnect\x12\x16.moci.v1.ClientMessage\x1a\x16.moci.v1.ServerMessage(\x01\x30\x01\x32M\n\nApiService\x12?\n\x06Invoke\x12\x19.moci.v1.ApiInvokeRequest\x1a\x1a.moci.v1.ApiInvokeResponseB\x17\n\x13\x63om.moci.words.grpcP\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -41,25 +41,27 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_PING']._serialized_start=138
   _globals['_PING']._serialized_end=144
   _globals['_SERVERMESSAGE']._serialized_start=147
-  _globals['_SERVERMESSAGE']._serialized_end=321
-  _globals['_READY']._serialized_start=323
-  _globals['_READY']._serialized_end=347
-  _globals['_USERSETTINGS']._serialized_start=350
-  _globals['_USERSETTINGS']._serialized_end=548
-  _globals['_SETTINGSUPDATED']._serialized_start=550
-  _globals['_SETTINGSUPDATED']._serialized_end=604
-  _globals['_PONG']._serialized_start=606
-  _globals['_PONG']._serialized_end=612
-  _globals['_ERROR']._serialized_start=614
-  _globals['_ERROR']._serialized_end=652
-  _globals['_APIINVOKEREQUEST']._serialized_start=655
-  _globals['_APIINVOKEREQUEST']._serialized_end=858
-  _globals['_APIINVOKEREQUEST_QUERYENTRY']._serialized_start=814
-  _globals['_APIINVOKEREQUEST_QUERYENTRY']._serialized_end=858
-  _globals['_APIINVOKERESPONSE']._serialized_start=861
-  _globals['_APIINVOKERESPONSE']._serialized_end=1001
-  _globals['_SYNCSERVICE']._serialized_start=1003
-  _globals['_SYNCSERVICE']._serialized_end=1079
-  _globals['_APISERVICE']._serialized_start=1081
-  _globals['_APISERVICE']._serialized_end=1158
+  _globals['_SERVERMESSAGE']._serialized_end=369
+  _globals['_READY']._serialized_start=371
+  _globals['_READY']._serialized_end=395
+  _globals['_USERSETTINGS']._serialized_start=398
+  _globals['_USERSETTINGS']._serialized_end=596
+  _globals['_SETTINGSUPDATED']._serialized_start=598
+  _globals['_SETTINGSUPDATED']._serialized_end=652
+  _globals['_WORDSUPDATED']._serialized_start=654
+  _globals['_WORDSUPDATED']._serialized_end=701
+  _globals['_PONG']._serialized_start=703
+  _globals['_PONG']._serialized_end=709
+  _globals['_ERROR']._serialized_start=711
+  _globals['_ERROR']._serialized_end=749
+  _globals['_APIINVOKEREQUEST']._serialized_start=752
+  _globals['_APIINVOKEREQUEST']._serialized_end=955
+  _globals['_APIINVOKEREQUEST_QUERYENTRY']._serialized_start=911
+  _globals['_APIINVOKEREQUEST_QUERYENTRY']._serialized_end=955
+  _globals['_APIINVOKERESPONSE']._serialized_start=958
+  _globals['_APIINVOKERESPONSE']._serialized_end=1098
+  _globals['_SYNCSERVICE']._serialized_start=1100
+  _globals['_SYNCSERVICE']._serialized_end=1176
+  _globals['_APISERVICE']._serialized_start=1178
+  _globals['_APISERVICE']._serialized_end=1255
 # @@protoc_insertion_point(module_scope)

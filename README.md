@@ -56,7 +56,7 @@ python3 app.py
 
 Flask 监听 `5000`（Web 管理、APK 下载），gRPC 监听 `50051`（`GRPC_PORT`，App 全部 API）。生产环境需放行 **50051**；Web 管理还需 **5000**。
 
-Android App 经 gRPC `ApiService.Invoke` 调用业务接口，经 `SyncService` 双向流接收家长推送的 `settings_updated` 事件。
+Android App 经 gRPC `ApiService.Invoke` 调用业务接口，经 `SyncService` 双向流接收 `settings_updated`（家长改设置）与 `words_updated`（词库变更）事件。
 
 Then open `http://127.0.0.1:5000`. The first visit creates tables if needed and a secret key under `server/instance/`.
 

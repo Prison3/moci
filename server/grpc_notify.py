@@ -1,4 +1,4 @@
-"""gRPC 推送：家长修改孩子设置后通知在线客户端。"""
+"""gRPC 推送：设置变更、词库变更等实时通知。"""
 
 from __future__ import annotations
 
@@ -26,3 +26,13 @@ def push_settings_updated(user_id: int, user: dict) -> None:
         settings_updated=moci_pb2.SettingsUpdated(user=_user_settings(user))
     )
     grpc_hub.publish(user_id, message)
+
+
+def push_words_updated(action: str, word_id: int = 0) -> None:
+    message = moci_pb2.ServerMessage(
+        words_updated=moci_pb2.WordsUpdated(
+            action=action,
+            word_id=int(word_id or 0),
+        )
+    )
+    grpc_hub.publish_all(message)
