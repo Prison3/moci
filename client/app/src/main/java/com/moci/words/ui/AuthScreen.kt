@@ -57,6 +57,8 @@ fun AuthScreen(onLogin: (User) -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var accountMenuOpen by remember { mutableStateOf(false) }
+    var advancedOpen by remember { mutableStateOf(false) }
+    var serverUrl by remember { mutableStateOf(app.api.currentBaseUrlDisplay()) }
 
     Column(
         modifier = Modifier
@@ -238,6 +240,7 @@ fun AuthScreen(onLogin: (User) -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         ) {
             if (busy) return@MociButton
+            if (advancedOpen) app.api.saveBaseUrl(serverUrl)
             error = null
             busy = true
             scope.launch {
@@ -274,6 +277,42 @@ fun AuthScreen(onLogin: (User) -> Unit) {
                 color = InkSoft,
             )
         }
+
+        Spacer(Modifier.height(if (isRegister) 24.dp else 48.dp))
+
+        Text(
+            if (advancedOpen) "Advanced ▾" else "Advanced ▸",
+            fontSize = 12.sp,
+            color = InkSoft,
+            modifier = Modifier
+                .clickable {
+                    advancedOpen = !advancedOpen
+                    if (advancedOpen) serverUrl = app.api.currentBaseUrlDisplay()
+                }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        )
+
+        if (advancedOpen) {
+            Spacer(Modifier.height(8.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Paper2)
+                    .border(1.dp, Line, RoundedCornerShape(12.dp))
+                    .padding(14.dp),
+            ) {
+                MociTextField(serverUrl, { serverUrl = it }, "server")
+                Spacer(Modifier.height(10.dp))
+                MociButton("save", kind = BtnKind.Ghost, modifier = Modifier.fillMaxWidth()) {
+                    app.api.saveBaseUrl(serverUrl)
+                    serverUrl = app.api.currentBaseUrlDisplay()
+                    context.toast("已保存：${app.api.currentBaseUrlDisplay()}")
+                    advancedOpen = false
+                }
+            }
+        }
+
         Spacer(Modifier.height(48.dp))
     }
 }

@@ -31,13 +31,18 @@ interface SessionListener {
  * 写操作自动附带登录时获取的 X-CSRF-Token。
  * GET 响应写入本地 Room（moci_cache.db），默认 30 分钟内复用，避免切 Tab 反复打服务器。
  */
-class ApiClient(context: Context, private val baseUrl: String) {
+class ApiClient(context: Context, defaultBaseUrl: String) {
 
+    private val appContext = context.applicationContext
     private val prefs: SharedPreferences =
-        context.getSharedPreferences("moci_session", Context.MODE_PRIVATE)
+        appContext.getSharedPreferences("moci_session", Context.MODE_PRIVATE)
     private val accountPrefs: SharedPreferences =
-        context.getSharedPreferences("moci_accounts", Context.MODE_PRIVATE)
-    private val cache = ApiCache(MociDatabase.get(context).cacheDao())
+        appContext.getSharedPreferences("moci_accounts", Context.MODE_PRIVATE)
+    private val settingsPrefs: SharedPreferences =
+        appContext.getSharedPreferences("moci_settings", Context.MODE_PRIVATE)
+    private val cache = ApiCache(MociDatabase.get(appContext).cacheDao())
+
+    private var baseUrl: String = loadBaseUrl(appContext, defaultBaseUrl)
 
     var listener: SessionListener? = null
 
@@ -487,6 +492,41 @@ class ApiClient(context: Context, private val baseUrl: String) {
                 "GET", "/api/v1/admin/learning",
                 query = mapOf("date" to date, "user_id" to userId?.toString()),
             )
+        }
+    }
+
+    fun currentBaseUrl(): String = baseUrl
+
+    fun currentBaseUrlDisplay(): String = stripScheme(baseUrl)
+
+    fun saveBaseUrl(url: String) {
+        baseUrl = normalizeBaseUrl(url)
+        settingsPrefs.edit().putString(KEY_BASE_URL, baseUrl).apply()
+    }
+
+    companion object {
+        private const val KEY_BASE_URL = "base_url"
+
+        fun loadBaseUrl(context: Context, defaultUrl: String): String {
+            val saved = context.getSharedPreferences("moci_settings", Context.MODE_PRIVATE)
+                .getString(KEY_BASE_URL, null)
+            return normalizeBaseUrl(saved ?: defaultUrl)
+        }
+
+        fun stripScheme(url: String): String {
+            var u = url.trim()
+            if (u.startsWith("https://")) u = u.removePrefix("https://")
+            else if (u.startsWith("http://")) u = u.removePrefix("http://")
+            return u.trimEnd('/')
+        }
+
+        fun normalizeBaseUrl(url: String): String {
+            var u = url.trim()
+            if (u.isEmpty()) return u
+            if (!u.startsWith("http://") && !u.startsWith("https://")) {
+                u = "http://$u"
+            }
+            return u.trimEnd('/')
         }
     }
 }
