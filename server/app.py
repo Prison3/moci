@@ -7,6 +7,7 @@ import hashlib
 import os
 import re
 import secrets
+import unicodedata
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
@@ -257,6 +258,14 @@ def normalize_spelling(text: str) -> str:
     return value
 
 
+def normalize_phonetic(text: str) -> str:
+    value = unicodedata.normalize("NFC", (text or "").strip())
+    value = value.strip("/").strip()
+    value = value.replace("g", "ɡ")
+    value = re.sub(r"[\s./]", "", value)
+    return value
+
+
 def normalize_spoken(text: str) -> str:
     value = (text or "").strip().lower()
     value = re.sub(r"[^a-z0-9\s]", " ", value)
@@ -436,7 +445,24 @@ def daily_review_of(user) -> int:
 def know_checks_of(user) -> dict:
     speak = _user_int(user, "know_speak", 1) == 1
     spell = _user_int(user, "know_spell", 1) == 1
-    return {"speak": speak, "spell": spell}
+    pos = _user_int(user, "know_pos", 1) == 1
+    phonetic = _user_int(user, "know_phonetic", 1) == 1
+    return {"speak": speak, "spell": spell, "pos": pos, "phonetic": phonetic}
+
+
+def parse_pos_tags(raw) -> list[str]:
+    if isinstance(raw, (list, tuple)):
+        parts = [str(p).strip() for p in raw if str(p).strip()]
+        return list(dict.fromkeys(parts))
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    parts = [
+        p.strip()
+        for p in re.split(r"[/|,，、;；|]+|\s+", text)
+        if p.strip()
+    ]
+    return list(dict.fromkeys(parts))
 
 
 def quotas_for(user_ids: list[int] | None) -> tuple[int | None, int | None]:
@@ -828,7 +854,7 @@ def children_of(parent_id: int):
     return get_db().execute(
         """
         SELECT u.id, u.username, u.role, u.status, u.created_at, u.daily_words, u.daily_review,
-               u.know_speak, u.know_spell
+               u.know_speak, u.know_spell, u.know_pos, u.know_phonetic
         FROM parent_children pc
         JOIN users u ON u.id = pc.child_id
         WHERE pc.parent_id = ?
@@ -1553,6 +1579,8 @@ def _public_user(user) -> dict:
         "daily_review": daily_review_of(user),
         "know_speak": _user_int(user, "know_speak", 1),
         "know_spell": _user_int(user, "know_spell", 1),
+        "know_pos": _user_int(user, "know_pos", 1),
+        "know_phonetic": _user_int(user, "know_phonetic", 1),
         "created_at": user["created_at"],
     }
 
@@ -1849,7 +1877,7 @@ def api_review_submit(word_id: int):
         return api_error("无效的评价。")
     word = (
         get_db()
-        .execute("SELECT id, term FROM words WHERE id = ?", (word_id,))
+        .execute("SELECT id, term, pos, phonetic FROM words WHERE id = ?", (word_id,))
         .fetchone()
     )
     if not word:
@@ -1866,6 +1894,18 @@ def api_review_submit(word_id: int):
                 return api_error("拼写不正确，请再试一次。", 400, "spelling")
             if normalize_spelling(spelling) != normalize_spelling(word["term"]):
                 return api_error("拼写不正确，请再试一次。", 400, "spelling")
+        expected_pos = parse_pos_tags(word["pos"] if "pos" in word.keys() else "")
+        if checks["pos"] and expected_pos:
+            selected_pos = parse_pos_tags(payload.get("pos_tags"))
+            if set(selected_pos) != set(expected_pos):
+                return api_error("词性不正确，请再试一次。", 400, "pos")
+        expected_phonetic = word["phonetic"] if "phonetic" in word.keys() else ""
+        if checks["phonetic"] and normalize_phonetic(expected_phonetic):
+            submitted = payload.get("phonetic")
+            if not isinstance(submitted, str) or not submitted.strip():
+                return api_error("音标不正确，请再试一次。", 400, "phonetic")
+            if normalize_phonetic(submitted) != normalize_phonetic(expected_phonetic):
+                return api_error("音标不正确，请再试一次。", 400, "phonetic")
     progress = fetch_progress(user["id"], word_id)
     kind = KIND_REVIEW if progress and progress["status"] == "learning" else KIND_NEW
     patch = schedule_review(progress, rating)
@@ -1982,13 +2022,24 @@ def api_child_settings(child_id: int):
     review_value = clamp_daily_words(data.get("daily_review"), DEFAULT_DAILY_REVIEW)
     know_speak = 1 if data.get("know_speak") else 0
     know_spell = 1 if data.get("know_spell") else 0
+    know_pos = 1 if data.get("know_pos", True) else 0
+    know_phonetic = 1 if data.get("know_phonetic", True) else 0
     get_db().execute(
         """
         UPDATE users SET daily_words = ?, daily_review = ?,
-               know_speak = ?, know_spell = ?
+               know_speak = ?, know_spell = ?, know_pos = ?, know_phonetic = ?
         WHERE id = ? AND role = ?
         """,
-        (new_value, review_value, know_speak, know_spell, child_id, ROLE_USER),
+        (
+            new_value,
+            review_value,
+            know_speak,
+            know_spell,
+            know_pos,
+            know_phonetic,
+            child_id,
+            ROLE_USER,
+        ),
     )
     get_db().commit()
     return jsonify({"ok": True, "message": "已保存学习设置。"})

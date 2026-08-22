@@ -78,6 +78,8 @@ class ApiClient(context: Context, defaultBaseUrl: String) {
         put("daily_review", u.dailyReview)
         put("know_speak", if (u.knowSpeak) 1 else 0)
         put("know_spell", if (u.knowSpell) 1 else 0)
+        put("know_pos", if (u.knowPos) 1 else 0)
+        put("know_phonetic", if (u.knowPhonetic) 1 else 0)
     }
 
     private fun cacheUserId(): Int = cachedUser?.id ?: 0
@@ -326,6 +328,7 @@ class ApiClient(context: Context, defaultBaseUrl: String) {
             Log.i(
                 "MociHide",
                 "[HIDE] api /review/cards speak=${json.opt("speak")} spell=${json.opt("spell")} " +
+                    "pos=${json.opt("pos")} phonetic=${json.opt("phonetic")} " +
                     "cards=${json.optJSONArray("cards")?.length()}",
             )
             json
@@ -336,11 +339,15 @@ class ApiClient(context: Context, defaultBaseUrl: String) {
         rating: String,
         spelling: String? = null,
         spoken: String? = null,
+        posTags: List<String>? = null,
+        phonetic: String? = null,
     ): JSONObject {
         val json = execute("POST", "/api/v1/review/$wordId", JSONObject().apply {
             put("rating", rating)
             if (spelling != null) put("spelling", spelling)
             if (spoken != null) put("spoken", spoken)
+            if (posTags != null) put("pos_tags", JSONArray(posTags))
+            if (phonetic != null) put("phonetic", phonetic)
         })
         invalidateLearnerProgress()
         return json
@@ -365,12 +372,16 @@ class ApiClient(context: Context, defaultBaseUrl: String) {
         dailyReview: Int,
         knowSpeak: Boolean,
         knowSpell: Boolean,
+        knowPos: Boolean,
+        knowPhonetic: Boolean,
     ): String {
         val json = execute("POST", "/api/v1/profile/child/$childId/settings", JSONObject().apply {
             put("daily_words", dailyWords)
             put("daily_review", dailyReview)
             put("know_speak", knowSpeak)
             put("know_spell", knowSpell)
+            put("know_pos", knowPos)
+            put("know_phonetic", knowPhonetic)
         })
         invalidateLearnerProgress()
         return json.optString("message", "已保存。")

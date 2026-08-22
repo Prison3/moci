@@ -56,12 +56,14 @@ import androidx.core.content.ContextCompat
 import com.moci.words.MociApp
 import com.moci.words.MociSpeech
 import com.moci.words.api.ApiException
+import com.moci.words.api.COMMON_POS_TAGS
 import com.moci.words.api.Card
 import com.moci.words.api.CardsData
+import com.moci.words.api.posChoiceLabel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private enum class CheckStage { None, Read, Spell }
+private enum class CheckStage { None, Pos, Read, Phonetic, Spell }
 
 private const val HIDE_TAG = "MociHide"
 
@@ -69,7 +71,7 @@ private fun hideLog(msg: String) {
     Log.i(HIDE_TAG, "[HIDE] $msg")
 }
 
-/** 学习页：闪卡 + 「学会」前的朗读 / 默写检查。逻辑对齐网页版 app.js。 */
+/** 学习页：闪卡 + 「学会」前的词性 / 朗读 / 音标 / 默写检查。 */
 @Composable
 fun StudyScreen(onExit: () -> Unit) {
     val app = LocalContext.current.applicationContext as MociApp
@@ -88,6 +90,10 @@ fun StudyScreen(onExit: () -> Unit) {
     var readError by remember { mutableStateOf<String?>(null) }
     var spellError by remember { mutableStateOf<String?>(null) }
     var spellInput by remember { mutableStateOf("") }
+    var selectedPos by remember { mutableStateOf(setOf<String>()) }
+    var posError by remember { mutableStateOf<String?>(null) }
+    var phoneticInput by remember { mutableStateOf("") }
+    var phoneticError by remember { mutableStateOf<String?>(null) }
     var submitting by remember { mutableStateOf(false) }
     var showRewards by remember { mutableStateOf(false) }
 
@@ -107,7 +113,7 @@ fun StudyScreen(onExit: () -> Unit) {
                 stage = CheckStage.None
                 hideLog(
                     "cards loaded n=${data?.cards?.size} speak=${data?.speak} spell=${data?.spell} " +
-                        "first=${data?.cards?.firstOrNull()?.term}",
+                        "pos=${data?.pos} phonetic=${data?.phonetic} first=${data?.cards?.firstOrNull()?.term}",
                 )
             } catch (e: ApiException) {
                 loadError = e.message
@@ -125,6 +131,8 @@ fun StudyScreen(onExit: () -> Unit) {
     val card = cards.getOrNull(index)
     val needSpeak = data?.speak == true
     val needSpell = data?.spell == true
+    val needPos = data?.pos == true && !card?.posTags.isNullOrEmpty()
+    val needPhonetic = data?.phonetic == true && !card?.phonetic.isNullOrBlank()
 
     fun resetCheck() {
         hideLog("resetCheck term=${card?.term} prevStage=$stage")
@@ -134,25 +142,47 @@ fun StudyScreen(onExit: () -> Unit) {
         readError = null
         spellError = null
         spellInput = ""
+        selectedPos = emptySet()
+        posError = null
+        phoneticInput = ""
+        phoneticError = null
         stage = CheckStage.None
     }
 
-    fun submit(cardId: Int, rating: String, spelling: String? = null, spoken: String? = null) {
+    fun submit(
+        cardId: Int,
+        rating: String,
+        spelling: String? = null,
+        spoken: String? = null,
+        posTags: List<String>? = null,
+        phonetic: String? = null,
+    ) {
         if (submitting) return
         submitting = true
         scope.launch {
             try {
-                app.api.submitReview(cardId, rating, spelling, spoken)
+                app.api.submitReview(cardId, rating, spelling, spoken, posTags, phonetic)
                 finished += 1
                 index += 1
                 resetCheck()
             } catch (e: ApiException) {
                 when (e.code) {
-                    "spelling" -> spellError = "拼写不正确，请再试一次，或改选「不认识」。"
+                    "spelling" -> {
+                        stage = CheckStage.Spell
+                        spellError = "拼写不正确，请再试一次，或改选「不认识」。"
+                    }
                     "spoken" -> {
                         spokenText = ""
                         stage = CheckStage.Read
                         readError = "请先正确朗读这个单词。"
+                    }
+                    "pos" -> {
+                        stage = CheckStage.Pos
+                        posError = "词性不正确，请再试一次，或改选「不认识」。"
+                    }
+                    "phonetic" -> {
+                        stage = CheckStage.Phonetic
+                        phoneticError = "音标不正确，请再试一次，或改选「不认识」。"
                     }
                     else -> context.toast(e.message ?: "提交失败，请检查网络后重试。")
                 }
@@ -160,6 +190,42 @@ fun StudyScreen(onExit: () -> Unit) {
                 context.toast("提交失败，请检查网络后重试。")
             }
             submitting = false
+        }
+    }
+
+    fun enabledChecks(): List<CheckStage> = listOfNotNull(
+        CheckStage.Pos.takeIf { needPos },
+        CheckStage.Read.takeIf { needSpeak },
+        CheckStage.Phonetic.takeIf { needPhonetic },
+        CheckStage.Spell.takeIf { needSpell },
+    )
+
+    fun nextAfter(current: CheckStage): CheckStage? {
+        val order = enabledChecks()
+        val i = order.indexOf(current)
+        return if (i >= 0 && i < order.lastIndex) order[i + 1] else null
+    }
+
+    fun submitEasy(c: Card) {
+        submit(
+            c.id,
+            "easy",
+            spelling = if (needSpell) spellInput else null,
+            spoken = if (needSpeak) spokenText else null,
+            posTags = if (needPos) selectedPos.toList() else null,
+            phonetic = if (needPhonetic) phoneticInput else null,
+        )
+    }
+
+    fun advanceFrom(current: CheckStage, c: Card, okToast: String) {
+        val next = nextAfter(current)
+        if (next != null) {
+            hideLog("${current.name} OK, stage -> $next term=${c.term}")
+            context.toast(okToast)
+            stage = next
+        } else {
+            hideLog("${current.name} OK, no later checks, submit term=${c.term}")
+            submitEasy(c)
         }
     }
 
@@ -178,14 +244,8 @@ fun StudyScreen(onExit: () -> Unit) {
         }
         spokenText = hit
         readError = null
-        if (needSpell) {
-            hideLog("read OK, hide stays, stage -> Spell term=$term")
-            context.toast("朗读正确")
-            stage = CheckStage.Spell
-        } else {
-            hideLog("read OK, spell off, submit without Spell screen term=$term")
-            submit(cardId, "easy", spoken = hit)
-        }
+        val current = card?.takeIf { it.id == cardId } ?: return
+        advanceFrom(CheckStage.Read, current, "朗读正确")
     }
 
     fun speechErrorMessage(code: String): String = when (code) {
@@ -280,15 +340,16 @@ fun StudyScreen(onExit: () -> Unit) {
     fun beginKnowCheck() {
         val c = card ?: return
         hideLog(
-            "tap 学会 id=${c.id} term=${c.term} needSpeak=$needSpeak needSpell=$needSpell stage=$stage",
+            "tap 学会 id=${c.id} term=${c.term} needSpeak=$needSpeak needSpell=$needSpell " +
+                "needPos=$needPos needPhonetic=$needPhonetic stage=$stage",
         )
-        if (!needSpeak && !needSpell) {
-            hideLog("skip hide: speak/spell both false, submit immediately")
-            submit(c.id, "easy")
+        val next = enabledChecks().firstOrNull()
+        if (next == null) {
+            hideLog("skip hide: all checks off, submit immediately")
+            submitEasy(c)
             return
         }
         app.tts.stop()
-        val next = if (needSpeak) CheckStage.Read else CheckStage.Spell
         hideLog("enter $next, FlashCard should unmount")
         stage = next
     }
@@ -375,11 +436,17 @@ fun StudyScreen(onExit: () -> Unit) {
                 )
             }
             else -> {
-                val hideView = if (stage == CheckStage.None) "FLASH" else "HIDDEN"
+                val hideView = when (stage) {
+                    CheckStage.None -> "FLASH"
+                    CheckStage.Pos -> "POS"
+                    CheckStage.Phonetic -> "PHONETIC"
+                    else -> "HIDDEN"
+                }
                 val hideLine =
                     "[HIDE] stage=${stage.name} speak=${if (needSpeak) 1 else 0} " +
-                        "spell=${if (needSpell) 1 else 0} view=$hideView term=${card.term}"
-                LaunchedEffect(stage, needSpeak, needSpell, card.id, hideView) {
+                        "spell=${if (needSpell) 1 else 0} pos=${if (needPos) 1 else 0} " +
+                        "phonetic=${if (needPhonetic) 1 else 0} view=$hideView term=${card.term}"
+                LaunchedEffect(stage, needSpeak, needSpell, needPos, needPhonetic, card.id, hideView) {
                     hideLog("compose $hideLine")
                 }
                 when (stage) {
@@ -505,12 +572,132 @@ fun StudyScreen(onExit: () -> Unit) {
                                 readError = "请先点话筒，正确读出这个单词。"
                                 return@MociButton
                             }
-                            submit(
-                                card.id,
-                                "easy",
-                                spelling = if (needSpell) spellInput else null,
-                                spoken = if (needSpeak) spokenText else null,
-                            )
+                            if (needPhonetic && normalizePhonetic(phoneticInput) !=
+                                normalizePhonetic(card.phonetic)
+                            ) {
+                                stage = CheckStage.Phonetic
+                                phoneticError = "请先正确写出这个单词的音标。"
+                                return@MociButton
+                            }
+                            submitEasy(card)
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        MociButton(
+                            "返回",
+                            kind = BtnKind.Ghost,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { resetCheck() }
+                    }
+
+                    CheckStage.Pos -> Column(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(vertical = 8.dp),
+                    ) {
+                        PosPromptCard(card)
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "请选出这个单词的词性",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Ink,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            if (card.posTags.size > 1) "可能有多个词性，请全部选出。" else "点选正确的词性。",
+                            fontSize = 13.sp,
+                            color = InkSoft,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        PosChoiceRow(
+                            choices = remember(card.id, card.pos) {
+                                (COMMON_POS_TAGS + card.posTags).distinct()
+                            },
+                            selected = selectedPos,
+                            isWrong = posError != null,
+                            onToggle = { tag ->
+                                selectedPos = if (tag in selectedPos) selectedPos - tag else selectedPos + tag
+                                posError = null
+                            },
+                        )
+                        posError?.let {
+                            Spacer(Modifier.height(6.dp))
+                            Text(it, fontSize = 13.sp, color = Cinnabar)
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        MociButton(
+                            "确认词性",
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !submitting,
+                        ) {
+                            if (selectedPos.isEmpty()) {
+                                posError = "请选出这个单词的词性。"
+                                return@MociButton
+                            }
+                            if (selectedPos != card.posTags.toSet()) {
+                                posError = "词性不正确，请再试一次，或改选「不认识」。"
+                                return@MociButton
+                            }
+                            posError = null
+                            advanceFrom(CheckStage.Pos, card, "词性正确")
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        MociButton(
+                            "返回",
+                            kind = BtnKind.Ghost,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { resetCheck() }
+                    }
+
+                    CheckStage.Phonetic -> Column(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(vertical = 8.dp),
+                    ) {
+                        PhoneticPromptCard(card)
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "请用音标键盘写出这个单词的音标",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Ink,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        PhoneticBoxesInput(
+                            expected = card.phonetic,
+                            value = phoneticInput,
+                            isWrong = phoneticError != null,
+                            onValueChange = {
+                                phoneticInput = it
+                                phoneticError = null
+                            },
+                        )
+                        phoneticError?.let {
+                            Spacer(Modifier.height(6.dp))
+                            Text(it, fontSize = 13.sp, color = Cinnabar)
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        MociButton(
+                            "确认音标",
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !submitting,
+                        ) {
+                            if (tokenizePhonetic(phoneticInput).isEmpty()) {
+                                phoneticError = "请写出这个单词的音标。"
+                                return@MociButton
+                            }
+                            if (normalizePhonetic(phoneticInput) !=
+                                normalizePhonetic(card.phonetic)
+                            ) {
+                                phoneticError = "音标不正确，请再试一次，或改选「不认识」。"
+                                return@MociButton
+                            }
+                            phoneticError = null
+                            advanceFrom(CheckStage.Phonetic, card, "音标正确")
                         }
                         Spacer(Modifier.height(10.dp))
                         MociButton(
@@ -572,6 +759,104 @@ private fun FlashCard(card: Card, modifier: Modifier = Modifier) {
                 Spacer(Modifier.height(10.dp))
                 Text(card.notes, fontSize = 13.sp, color = InkSoft)
             }
+        }
+    }
+}
+
+@Composable
+private fun PosPromptCard(card: Card, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Paper2)
+            .border(1.dp, Line, RoundedCornerShape(18.dp))
+            .padding(20.dp),
+    ) {
+        MociBadge("选词性", Pine)
+        Spacer(Modifier.height(14.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SpeakText(card.term, style = MociType.cardTerm)
+            Spacer(Modifier.width(6.dp))
+            SpeakIconButton(card.term, size = 26)
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(card.meaning, fontSize = 17.sp, color = Ink)
+    }
+}
+
+@Composable
+private fun PhoneticPromptCard(card: Card, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Paper2)
+            .border(1.dp, Line, RoundedCornerShape(18.dp))
+            .padding(20.dp),
+    ) {
+        MociBadge("写音标", Pine)
+        Spacer(Modifier.height(14.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SpeakText(card.term, style = MociType.cardTerm)
+            Spacer(Modifier.width(6.dp))
+            SpeakIconButton(card.term, size = 26)
+            if (card.pos.isNotEmpty()) {
+                Spacer(Modifier.width(8.dp))
+                PosBadges(card.pos)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(card.meaning, fontSize = 17.sp, color = Ink)
+        Spacer(Modifier.height(10.dp))
+        Text("音标已隐藏，请凭记忆用下方键盘填写", fontSize = 13.sp, color = InkSoft)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PosChoiceRow(
+    choices: List<String>,
+    selected: Set<String>,
+    isWrong: Boolean,
+    onToggle: (String) -> Unit,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        choices.forEach { tag ->
+            val on = tag in selected
+            Text(
+                posChoiceLabel(tag),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = when {
+                    isWrong && on -> Cinnabar
+                    on -> Pine
+                    else -> InkSoft
+                },
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(
+                        when {
+                            isWrong && on -> Cinnabar.copy(alpha = 0.10f)
+                            on -> Pine.copy(alpha = 0.14f)
+                            else -> Paper2
+                        },
+                    )
+                    .border(
+                        1.dp,
+                        when {
+                            isWrong && on -> Cinnabar
+                            on -> Pine
+                            else -> Line
+                        },
+                        RoundedCornerShape(999.dp),
+                    )
+                    .clickable { onToggle(tag) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
         }
     }
 }

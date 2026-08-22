@@ -24,6 +24,8 @@ data class User(
     val dailyReview: Int,
     val knowSpeak: Boolean,
     val knowSpell: Boolean,
+    val knowPos: Boolean,
+    val knowPhonetic: Boolean,
 ) {
     val isAdmin get() = role == "admin"
     val isParent get() = role == "parent"
@@ -44,6 +46,8 @@ data class User(
             dailyReview = o.optInt("daily_review", 8),
             knowSpeak = o.optInt("know_speak", 1) == 1,
             knowSpell = o.optInt("know_spell", 1) == 1,
+            knowPos = o.optInt("know_pos", 1) == 1,
+            knowPhonetic = o.optInt("know_phonetic", 1) == 1,
         )
     }
 }
@@ -132,6 +136,24 @@ fun joinPosTags(tags: Collection<String>): String =
 val COMMON_POS_TAGS = listOf(
     "n.", "v.", "adj.", "adv.", "prep.", "conj.", "pron.", "art.", "num.", "interj.",
 )
+
+private val POS_ZH = mapOf(
+    "n." to "名词",
+    "v." to "动词",
+    "adj." to "形容词",
+    "adv." to "副词",
+    "prep." to "介词",
+    "conj." to "连词",
+    "pron." to "代词",
+    "art." to "冠词",
+    "num." to "数词",
+    "interj." to "感叹词",
+)
+
+fun posChoiceLabel(tag: String): String {
+    val zh = POS_ZH[tag]
+    return if (zh.isNullOrEmpty()) tag else "$tag $zh"
+}
 
 data class TaskPart(val quota: Int, val done: Int, val remaining: Int) {
     companion object {
@@ -343,6 +365,8 @@ data class LearnerHome(
     val dayWords: List<DayWord>,
     val speak: Boolean,
     val spell: Boolean,
+    val pos: Boolean,
+    val phonetic: Boolean,
 ) {
     companion object {
         fun from(o: JSONObject) = LearnerHome(
@@ -353,6 +377,8 @@ data class LearnerHome(
             dayWords = DayWord.listFrom(o.optJSONArray("day_words")),
             speak = o.optFlag("speak", true),
             spell = o.optFlag("spell", true),
+            pos = o.optFlag("pos", true),
+            phonetic = o.optFlag("phonetic", true),
         )
     }
 }
@@ -527,6 +553,8 @@ data class CardsData(
     val stats: WordStats,
     val speak: Boolean,
     val spell: Boolean,
+    val pos: Boolean,
+    val phonetic: Boolean,
 ) {
     companion object {
         fun from(o: JSONObject): CardsData {
@@ -537,6 +565,8 @@ data class CardsData(
                 stats = WordStats.from(o.getJSONObject("stats")),
                 speak = o.optFlag("speak", true),
                 spell = o.optFlag("spell", true),
+                pos = o.optFlag("pos", true),
+                phonetic = o.optFlag("phonetic", true),
             )
         }
     }

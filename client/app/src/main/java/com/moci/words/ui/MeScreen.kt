@@ -259,6 +259,8 @@ private fun ChildSettingsCard(child: ChildInfo, onSaved: () -> Unit) {
     }
     var knowSpeak by remember(child.user.id) { mutableStateOf(child.user.knowSpeak) }
     var knowSpell by remember(child.user.id) { mutableStateOf(child.user.knowSpell) }
+    var knowPos by remember(child.user.id) { mutableStateOf(child.user.knowPos) }
+    var knowPhonetic by remember(child.user.id) { mutableStateOf(child.user.knowPhonetic) }
     var saving by remember { mutableStateOf(false) }
 
     PanelCard {
@@ -293,6 +295,21 @@ private fun ChildSettingsCard(child: ChildInfo, onSaved: () -> Unit) {
             )
             Text("正确默写", fontSize = 14.sp, color = Ink)
         }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = knowPos,
+                onCheckedChange = { knowPos = it },
+                colors = CheckboxDefaults.colors(checkedColor = Pine),
+            )
+            Text("正确词性", fontSize = 14.sp, color = Ink)
+            Spacer(Modifier.weight(1f))
+            Checkbox(
+                checked = knowPhonetic,
+                onCheckedChange = { knowPhonetic = it },
+                colors = CheckboxDefaults.colors(checkedColor = Pine),
+            )
+            Text("正确音标", fontSize = 14.sp, color = Ink)
+        }
         Spacer(Modifier.height(6.dp))
         Text(
             "今日新词 ${child.task.new.done} / ${child.task.new.quota} · 复习 ${child.task.review.done} / ${child.task.review.quota}",
@@ -314,6 +331,8 @@ private fun ChildSettingsCard(child: ChildInfo, onSaved: () -> Unit) {
                         dailyReview.toIntOrNull() ?: 8,
                         knowSpeak,
                         knowSpell,
+                        knowPos,
+                        knowPhonetic,
                     )
                     context.toast(msg)
                     onSaved()
