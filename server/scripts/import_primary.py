@@ -15,6 +15,7 @@ from data.primary_school_words import WORDS  # noqa: E402
 from data.shanghai_oxford_extra import EXTRA_WORDS  # noqa: E402
 from data.word_usage import usage_for  # noqa: E402
 from db import connect, init_schema  # noqa: E402
+from scripts.fill_pos import infer_pos  # noqa: E402
 
 
 def now_iso() -> str:
@@ -44,7 +45,10 @@ def main() -> None:
     existing = {
         row["term"].lower(): row
         for row in conn.execute(
-            "SELECT id, term, meaning, notes, phrase, example FROM words"
+            """
+            SELECT id, term, meaning, notes, phrase, phrase_zh, example, example_zh, pos
+            FROM words
+            """
         )
     }
 
@@ -60,40 +64,65 @@ def main() -> None:
             continue
         if len(term) > 80 or len(meaning) > 400:
             continue
-        phrase, example = usage_for(term, meaning, notes)
+        phrase, phrase_zh, example, example_zh = usage_for(term, meaning, notes)
+        pos = infer_pos(term, meaning, notes)
         key = term.lower()
         if key in existing:
             skipped += 1
             row = existing[key]
             if refresh:
-                new_phrase, new_example = phrase, example
+                new_phrase, new_phrase_zh = phrase, phrase_zh
+                new_example, new_example_zh = example, example_zh
             else:
                 new_phrase = (row["phrase"] or "").strip() or phrase
                 new_example = (row["example"] or "").strip() or example
-            if new_phrase != (row["phrase"] or "") or new_example != (row["example"] or ""):
+                new_phrase_zh = (row["phrase_zh"] or "").strip() or phrase_zh
+                new_example_zh = (row["example_zh"] or "").strip() or example_zh
+            if (
+                new_phrase != (row["phrase"] or "")
+                or new_example != (row["example"] or "")
+                or new_phrase_zh != (row["phrase_zh"] or "")
+                or new_example_zh != (row["example_zh"] or "")
+            ):
                 conn.execute(
                     """
                     UPDATE words
-                    SET phrase = ?, example = ?, updated_at = ?
+                    SET phrase = ?, phrase_zh = ?, example = ?, example_zh = ?, updated_at = ?
                     WHERE id = ?
                     """,
-                    (new_phrase, new_example, ts, row["id"]),
+                    (
+                        new_phrase,
+                        new_phrase_zh,
+                        new_example,
+                        new_example_zh,
+                        ts,
+                        row["id"],
+                    ),
                 )
                 filled += 1
+            if not (row.get("pos") or "").strip():
+                conn.execute(
+                    "UPDATE words SET pos = ?, updated_at = ? WHERE id = ?",
+                    (pos, ts, row["id"]),
+                )
             continue
         new_row = conn.execute(
             """
             INSERT INTO words (
-                term, phonetic, meaning, phrase, example, notes, created_by, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                term, phonetic, pos, meaning, phrase, phrase_zh, example, example_zh,
+                notes, created_by, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id
             """,
             (
                 term,
                 phonetic.strip(),
+                pos,
                 meaning,
                 phrase,
+                phrase_zh,
                 example,
+                example_zh,
                 notes,
                 admin_id,
                 ts,
@@ -106,29 +135,49 @@ def main() -> None:
             "meaning": meaning,
             "notes": notes,
             "phrase": phrase,
+            "phrase_zh": phrase_zh,
             "example": example,
+            "example_zh": example_zh,
+            "pos": pos,
         }
         inserted += 1
 
     extra = conn.execute(
         """
-        SELECT id, term, meaning, notes, phrase, example
+        SELECT id, term, meaning, notes, phrase, phrase_zh, example, example_zh
         FROM words
         WHERE COALESCE(phrase, '') = '' OR COALESCE(example, '') = ''
+           OR COALESCE(phrase_zh, '') = '' OR COALESCE(example_zh, '') = ''
         """
     ).fetchall()
     for row in extra:
-        phrase, example = usage_for(row["term"], row["meaning"] or "", row["notes"] or "")
+        phrase, phrase_zh, example, example_zh = usage_for(
+            row["term"], row["meaning"] or "", row["notes"] or ""
+        )
         new_phrase = (row["phrase"] or "").strip() or phrase
         new_example = (row["example"] or "").strip() or example
-        if new_phrase != (row["phrase"] or "") or new_example != (row["example"] or ""):
+        new_phrase_zh = (row["phrase_zh"] or "").strip() or phrase_zh
+        new_example_zh = (row["example_zh"] or "").strip() or example_zh
+        if (
+            new_phrase != (row["phrase"] or "")
+            or new_example != (row["example"] or "")
+            or new_phrase_zh != (row["phrase_zh"] or "")
+            or new_example_zh != (row["example_zh"] or "")
+        ):
             conn.execute(
                 """
                 UPDATE words
-                SET phrase = ?, example = ?, updated_at = ?
+                SET phrase = ?, phrase_zh = ?, example = ?, example_zh = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                (new_phrase, new_example, ts, row["id"]),
+                (
+                    new_phrase,
+                    new_phrase_zh,
+                    new_example,
+                    new_example_zh,
+                    ts,
+                    row["id"],
+                ),
             )
             filled += 1
 
@@ -138,6 +187,7 @@ def main() -> None:
         """
         SELECT COUNT(*) AS n FROM words
         WHERE COALESCE(phrase, '') = '' OR COALESCE(example, '') = ''
+           OR COALESCE(phrase_zh, '') = '' OR COALESCE(example_zh, '') = ''
         """
     ).fetchone()["n"]
     conn.close()

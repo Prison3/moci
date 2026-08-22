@@ -254,11 +254,11 @@ private fun WordDetail(
             Text(word.meaning, fontSize = 16.sp, color = Ink)
             if (word.phrase.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
-                ExtraLine("短语", word.phrase)
+                ExtraLine("短语", word.phrase, word.phraseZh)
             }
             if (word.example.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
-                ExtraLine("例句", word.example)
+                ExtraLine("例句", word.example, word.exampleZh)
             }
             if (word.notes.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
@@ -303,7 +303,9 @@ private fun WordForm(
     }
     var meaning by remember { mutableStateOf(initial?.meaning ?: "") }
     var phrase by remember { mutableStateOf(initial?.phrase ?: "") }
+    var phraseZh by remember { mutableStateOf(initial?.phraseZh ?: "") }
     var example by remember { mutableStateOf(initial?.example ?: "") }
+    var exampleZh by remember { mutableStateOf(initial?.exampleZh ?: "") }
     var notes by remember { mutableStateOf(initial?.notes ?: "") }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
@@ -366,7 +368,11 @@ private fun WordForm(
         Spacer(Modifier.height(10.dp))
         MociTextField(phrase, { phrase = it }, "短语（可选）")
         Spacer(Modifier.height(10.dp))
+        MociTextField(phraseZh, { phraseZh = it }, "短语翻译（可选）")
+        Spacer(Modifier.height(10.dp))
         MociTextField(example, { example = it }, "例句（可选）", singleLine = false)
+        Spacer(Modifier.height(10.dp))
+        MociTextField(exampleZh, { exampleZh = it }, "例句翻译（可选）", singleLine = false)
         Spacer(Modifier.height(10.dp))
         MociTextField(notes, { notes = it }, "笔记（可选）", singleLine = false)
         error?.let {
@@ -388,7 +394,9 @@ private fun WordForm(
                 pos = joinPosTags(COMMON_POS_TAGS.filter { it in selectedPos } + selectedPos.filter { it !in COMMON_POS_TAGS }),
                 meaning = meaning,
                 phrase = phrase,
+                phraseZh = phraseZh,
                 example = example,
+                exampleZh = exampleZh,
                 notes = notes,
             )
             scope.launch {

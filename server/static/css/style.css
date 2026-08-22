@@ -983,6 +983,13 @@ textarea:focus {
   line-height: 1.5;
 }
 
+.extra-zh {
+  margin: 2px 0 0 2.6em;
+  font-size: 13px;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
 .extra-label {
   display: inline-block;
   font-size: 12px;

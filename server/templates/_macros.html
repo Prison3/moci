@@ -32,11 +32,13 @@
             <p class="extra"><span class="extra-label">短语</span> {{ row.phrase }}
               {{ speak_btn(row.phrase, '朗读短语', 'speak-inline') }}
             </p>
+            {% if row.phrase_zh %}<p class="extra-zh">{{ row.phrase_zh }}</p>{% endif %}
           {% endif %}
           {% if row.example %}
             <p class="example extra"><span class="extra-label">例句</span> {{ row.example }}
               {{ speak_btn(row.example, '朗读例句', 'speak-inline') }}
             </p>
+            {% if row.example_zh %}<p class="extra-zh">{{ row.example_zh }}</p>{% endif %}
           {% endif %}
         </li>
       {% endfor %}

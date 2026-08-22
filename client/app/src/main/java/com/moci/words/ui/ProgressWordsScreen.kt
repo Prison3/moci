@@ -226,11 +226,11 @@ private fun LearnerWordDetail(word: Word, onBack: () -> Unit) {
             Text(word.meaning, fontSize = 16.sp, color = Ink)
             if (word.phrase.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
-                ExtraLine("短语", word.phrase)
+                ExtraLine("短语", word.phrase, word.phraseZh)
             }
             if (word.example.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
-                ExtraLine("例句", word.example)
+                ExtraLine("例句", word.example, word.exampleZh)
             }
             if (word.notes.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))

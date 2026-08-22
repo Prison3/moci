@@ -571,11 +571,11 @@ private fun FlashCard(card: Card, modifier: Modifier = Modifier) {
             Text(card.meaning, fontSize = 17.sp, color = Ink)
             if (card.phrase.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
-                ExtraLine("短语", card.phrase)
+                ExtraLine("短语", card.phrase, card.phraseZh)
             }
             if (card.example.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
-                ExtraLine("例句", card.example)
+                ExtraLine("例句", card.example, card.exampleZh)
             }
             if (card.notes.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))

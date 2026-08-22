@@ -22,11 +22,13 @@
     <p class="extra"><span class="extra-label">短语</span> {{ word.phrase }}
       {{ speak_btn(word.phrase, '朗读短语', 'speak-inline') }}
     </p>
+    {% if word.phrase_zh %}<p class="extra-zh">{{ word.phrase_zh }}</p>{% endif %}
   {% endif %}
   {% if word.example %}
     <p class="example extra"><span class="extra-label">例句</span> {{ word.example }}
       {{ speak_btn(word.example, '朗读例句', 'speak-inline') }}
     </p>
+    {% if word.example_zh %}<p class="extra-zh">{{ word.example_zh }}</p>{% endif %}
   {% endif %}
   {% if word.notes %}<p class="notes">{{ word.notes }}</p>{% endif %}
 

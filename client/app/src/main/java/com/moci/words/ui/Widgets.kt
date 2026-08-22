@@ -633,28 +633,35 @@ fun DayWordItem(w: DayWord) {
             )
         }
         if (w.phrase.isNotEmpty()) {
-            ExtraLine("短语", w.phrase)
+            ExtraLine("短语", w.phrase, w.phraseZh)
         }
         if (w.example.isNotEmpty()) {
-            ExtraLine("例句", w.example)
+            ExtraLine("例句", w.example, w.exampleZh)
         }
     }
 }
 
 @Composable
-fun ExtraLine(label: String, text: String) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(top = 6.dp),
-    ) {
-        Text(label, fontSize = 12.sp, color = Pine, fontWeight = FontWeight.Medium)
-        Spacer(Modifier.width(6.dp))
-        SpeakText(
-            text,
-            fontSize = 13.sp,
-            color = InkSoft,
-            modifier = Modifier.weight(1f),
-        )
-        SpeakIconButton(text, size = 16)
+fun ExtraLine(label: String, text: String, translation: String = "") {
+    Column(modifier = Modifier.padding(top = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, fontSize = 12.sp, color = Pine, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.width(6.dp))
+            SpeakText(
+                text,
+                fontSize = 13.sp,
+                color = InkSoft,
+                modifier = Modifier.weight(1f),
+            )
+            SpeakIconButton(text, size = 16)
+        }
+        if (translation.isNotEmpty()) {
+            Text(
+                translation,
+                fontSize = 12.sp,
+                color = InkSoft.copy(alpha = 0.85f),
+                modifier = Modifier.padding(start = 36.dp, top = 2.dp),
+            )
+        }
     }
 }

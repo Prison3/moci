@@ -432,7 +432,9 @@ class ApiClient(context: Context, private val baseUrl: String) {
         put("pos", w.pos)
         put("meaning", w.meaning)
         put("phrase", w.phrase)
+        put("phrase_zh", w.phraseZh)
         put("example", w.example)
+        put("example_zh", w.exampleZh)
         put("notes", w.notes)
     }
 

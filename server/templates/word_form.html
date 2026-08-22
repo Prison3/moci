@@ -36,8 +36,16 @@
       <input type="text" name="phrase" maxlength="200" value="{{ word.phrase if word else '' }}" placeholder="eat an apple">
     </label>
     <label>
+      <span>短语翻译（可选）</span>
+      <input type="text" name="phrase_zh" maxlength="200" value="{{ word.phrase_zh if word else '' }}" placeholder="吃一个苹果">
+    </label>
+    <label>
       <span>例句（可选）</span>
       <textarea name="example" maxlength="400" rows="3" placeholder="She ate an apple.">{{ word.example if word else '' }}</textarea>
+    </label>
+    <label>
+      <span>例句翻译（可选）</span>
+      <textarea name="example_zh" maxlength="400" rows="2" placeholder="她吃了一个苹果。">{{ word.example_zh if word else '' }}</textarea>
     </label>
     <label>
       <span>备注（可选）</span>

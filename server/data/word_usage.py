@@ -1,145 +1,35 @@
-"""为小学词汇生成常用短语与例句。"""
+"""为小学词汇生成常用短语、例句及其中文翻译。"""
 
 from __future__ import annotations
+
+import re
 
 VOWELS = set("aeiou")
 
 UNCOUNTABLE = {
-    "air",
-    "beef",
-    "bread",
-    "butter",
-    "candy",
-    "chicken",
-    "chocolate",
-    "earth",
-    "english",
-    "fire",
-    "fish",
-    "football",
-    "grass",
-    "hair",
-    "homework",
-    "housework",
-    "ice",
-    "ice cream",
-    "internet",
-    "juice",
-    "math",
-    "maths",
-    "meat",
-    "milk",
-    "music",
-    "paper",
-    "pe",
-    "people",
-    "pork",
-    "rice",
-    "science",
-    "snow",
-    "soup",
-    "space",
-    "tea",
-    "water",
-    "weather",
-    "work",
+    "air", "beef", "bread", "butter", "candy", "chicken", "chocolate",
+    "earth", "english", "fire", "fish", "football", "grass", "hair",
+    "homework", "housework", "ice", "ice cream", "internet", "juice",
+    "math", "maths", "meat", "milk", "music", "paper", "pe", "people",
+    "pork", "rice", "science", "snow", "soup", "space", "tea", "water",
+    "weather", "work",
 }
 
 VERBS = {
-    "am",
-    "are",
-    "arrive",
-    "ask",
-    "be",
-    "begin",
-    "buy",
-    "call",
-    "can",
-    "catch",
-    "close",
-    "come",
-    "cook",
-    "dance",
-    "do",
-    "draw",
-    "drink",
-    "drive",
-    "eat",
-    "exercise",
-    "feel",
-    "find",
-    "finish",
-    "fly",
-    "get",
-    "give",
-    "go",
-    "has",
-    "have",
-    "hear",
-    "help",
-    "hope",
-    "hurry",
-    "hurt",
-    "is",
-    "jump",
-    "keep",
-    "know",
-    "learn",
-    "let",
-    "like",
-    "listen",
-    "live",
-    "look",
-    "love",
-    "make",
-    "meet",
-    "move",
-    "must",
-    "need",
-    "open",
-    "play",
-    "put",
-    "read",
-    "ride",
-    "run",
-    "say",
-    "see",
-    "sell",
-    "share",
-    "should",
-    "show",
-    "sing",
-    "sit",
-    "sleep",
-    "speak",
-    "stand",
-    "start",
-    "stop",
-    "study",
-    "swim",
-    "take",
-    "talk",
-    "teach",
-    "tell",
-    "thank",
-    "think",
-    "try",
-    "turn",
-    "use",
-    "visit",
-    "wait",
-    "wake",
-    "walk",
-    "want",
-    "wash",
-    "watch",
-    "wear",
-    "will",
-    "work",
-    "worry",
-    "write",
+    "am", "are", "arrive", "ask", "be", "begin", "buy", "call", "can",
+    "catch", "close", "come", "cook", "dance", "do", "draw", "drink",
+    "drive", "eat", "exercise", "feel", "find", "finish", "fly", "get",
+    "give", "go", "has", "have", "hear", "help", "hope", "hurry", "hurt",
+    "is", "jump", "keep", "know", "learn", "let", "like", "listen", "live",
+    "look", "love", "make", "meet", "move", "must", "need", "open", "play",
+    "put", "read", "ride", "run", "say", "see", "sell", "share", "show",
+    "sing", "sit", "sleep", "speak", "stand", "start", "stop", "study",
+    "swim", "take", "talk", "teach", "tell", "think", "travel", "try",
+    "turn", "use", "visit", "wait", "wake", "walk", "want", "wash", "watch",
+    "wear", "will", "work", "worry", "write",
 }
 
+# phrase, example（英文）；中文由 translate_usage / usage_for 统一生成
 SPECIAL: dict[str, tuple[str, str]] = {
     "i": ("I am", "I am a student."),
     "you": ("thank you", "How are you?"),
@@ -327,6 +217,7 @@ SPECIAL: dict[str, tuple[str, str]] = {
     "sleep": ("go to sleep", "I sleep at nine."),
     "wake": ("wake up", "I wake up at seven."),
     "buy": ("buy a book", "I want to buy a book."),
+    "boil": ("a boil", "He has a boil on his arm."),
     "sell": ("sell fruit", "They sell apples."),
     "use": ("use a pen", "I use a pencil."),
     "try": ("try again", "Please try again."),
@@ -372,6 +263,240 @@ SPECIAL: dict[str, tuple[str, str]] = {
     "t-shirt": ("a T-shirt", "I wear a T-shirt."),
 }
 
+# 固定短语/例句的中文（优先于规则推断）
+SPECIAL_ZH: dict[str, tuple[str, str]] = {
+    "i": ("我是", "我是一名学生。"),
+    "you": ("谢谢你", "你好吗？"),
+    "he": ("他是", "他是我的朋友。"),
+    "she": ("她是", "她是我的姐姐。"),
+    "it": ("它是", "它是一只猫。"),
+    "we": ("我们是", "我们很开心。"),
+    "they": ("他们是", "他们是我的同学。"),
+    "me": ("帮助我", "你能帮助我吗？"),
+    "him": ("和他一起", "我和他一起玩。"),
+    "her": ("她的书", "这是她的书。"),
+    "us": ("和我们一起", "跟我们一起来。"),
+    "them": ("和他们一起", "我喜欢他们。"),
+    "my": ("我的名字", "我的名字叫汤姆。"),
+    "your": ("你的书", "这是你的书吗？"),
+    "his": ("他的包", "这是他的包。"),
+    "its": ("它的名字", "它叫什么名字？"),
+    "our": ("我们的学校", "这是我们的学校。"),
+    "their": ("他们的老师", "他们的老师很友善。"),
+    "mine": ("这是我的", "这本书是我的。"),
+    "yours": ("这是你的", "这是你的吗？"),
+    "this": ("这是", "这是一支钢笔。"),
+    "that": ("那是", "那是我的课桌。"),
+    "these": ("这些是", "这些是我的书。"),
+    "those": ("那些是", "那些是苹果。"),
+    "who": ("谁是", "她是谁？"),
+    "whose": ("谁的书", "这是谁的书？"),
+    "what": ("什么是", "这是什么？"),
+    "which": ("哪一个", "你喜欢哪一个？"),
+    "where": ("在哪里", "我的包在哪里？"),
+    "when": ("什么时候", "你的生日是什么时候？"),
+    "why": ("为什么不", "你为什么开心？"),
+    "how": ("你好吗", "你今天好吗？"),
+    "a": ("一本书", "我有一本书。"),
+    "an": ("一个苹果", "我吃一个苹果。"),
+    "the": ("太阳", "太阳很明亮。"),
+    "and": ("你和我", "汤姆和我是朋友。"),
+    "or": ("茶或果汁", "你喜欢茶还是果汁？"),
+    "but": ("但是我喜欢", "我累了，但是我很开心。"),
+    "not": ("不要", "我不知道。"),
+    "no": ("不，谢谢", "不，谢谢你。"),
+    "yes": ("是的，我喜欢", "是的，我喜欢它。"),
+    "ok": ("好的，我们走吧", "好的，我们走吧。"),
+    "please": ("请坐下", "请坐下。"),
+    "sorry": ("对不起", "对不起。"),
+    "thank": ("谢谢你", "非常感谢你。"),
+    "thanks": ("多谢", "非常感谢。"),
+    "hello": ("大家好", "你好，我叫艾米。"),
+    "hi": ("嗨，汤姆", "嗨，你好吗？"),
+    "goodbye": ("说再见", "再见，怀特老师。"),
+    "bye": ("再见", "再见，明天见。"),
+    "welcome": ("欢迎来到", "欢迎来到我们学校。"),
+    "pardon": ("请再说一遍", "对不起？请再说一遍。"),
+    "in": ("在盒子里", "书在包里。"),
+    "on": ("在桌子上", "钢笔在桌子上。"),
+    "at": ("在学校", "我在学校。"),
+    "to": ("去学校", "我去学校。"),
+    "from": ("来自中国", "我来自中国。"),
+    "for": ("给你", "这份礼物是给你的。"),
+    "of": ("一杯", "我想要一杯茶。"),
+    "with": ("和我一起", "跟我来。"),
+    "about": ("大约十", "这本书是关于动物的。"),
+    "under": ("在桌子下面", "猫在桌子下面。"),
+    "behind": ("在门后面", "包在门后面。"),
+    "beside": ("在我旁边", "坐在我旁边。"),
+    "between": ("在 A 和 B 之间", "公园在学校和商店之间。"),
+    "near": ("在学校附近", "我家在学校附近。"),
+    "over": ("在那边", "看那边。"),
+    "up": ("起立", "请起立。"),
+    "down": ("坐下", "请坐下。"),
+    "off": ("脱掉", "脱掉你的外套。"),
+    "out": ("出去", "我们出去吧。"),
+    "into": ("进房间", "请进房间。"),
+    "after": ("放学后", "我放学后玩耍。"),
+    "before": ("课前", "午饭前洗手。"),
+    "again": ("再试一次", "请再说一遍。"),
+    "also": ("我也喜欢", "我也喜欢苹果。"),
+    "always": ("总是开心", "她总是很友善。"),
+    "sometimes": ("有时玩耍", "我有时晚上读书。"),
+    "never": ("从不迟到", "我从不迟到。"),
+    "often": ("经常玩", "我们经常踢足球。"),
+    "too": ("我也是", "我也喜欢它。"),
+    "very": ("非常好", "它非常漂亮。"),
+    "now": ("现在", "我们现在走吧。"),
+    "then": ("然后", "先读，然后写。"),
+    "here": ("过来", "请过来。"),
+    "there": ("在那边", "看，那里有一只鸟。"),
+    "today": ("今天是", "今天是星期一。"),
+    "tomorrow": ("明天见", "明天见。"),
+    "yesterday": ("昨天早上", "我昨天玩了。"),
+    "all": ("我们全部", "我们都在这里。"),
+    "some": ("一些水", "我想要一些牛奶。"),
+    "any": ("任何问题", "你有什么问题吗？"),
+    "many": ("许多书", "我有许多书。"),
+    "much": ("太多", "这个多少钱？"),
+    "lot": ("许多", "我有很多朋友。"),
+    "little": ("一点", "我有一点累。"),
+    "family": ("我的家人", "我爱我的家人。"),
+    "father": ("我的爸爸", "这是我的爸爸。"),
+    "dad": ("我的爸爸", "我爸爸是医生。"),
+    "mother": ("我的妈妈", "这是我的妈妈。"),
+    "mum": ("我的妈妈", "我妈妈是老师。"),
+    "mom": ("我的妈妈", "我妈妈很友善。"),
+    "parent": ("我的家长", "我的家长在家。"),
+    "brother": ("我的哥哥/弟弟", "我有一个哥哥。"),
+    "sister": ("我的姐姐/妹妹", "这是我的姐姐。"),
+    "grandfather": ("我的爷爷/外公", "我的爷爷年纪大了。"),
+    "grandpa": ("我的爷爷", "我爱我的爷爷。"),
+    "grandmother": ("我的奶奶/外婆", "我的奶奶很会做饭。"),
+    "grandma": ("我的奶奶", "我的奶奶很友善。"),
+    "uncle": ("我的叔叔/舅舅", "这是我的叔叔。"),
+    "aunt": ("我的阿姨/姑姑", "这是我的阿姨。"),
+    "cousin": ("我的堂/表亲", "我的堂哥十岁。"),
+    "baby": ("一个婴儿", "这个婴儿很可爱。"),
+    "boy": ("一个男孩", "他是一个男孩。"),
+    "girl": ("一个女孩", "她是一个女孩。"),
+    "man": ("一个男人", "那个男人是老师。"),
+    "woman": ("一个女人", "那个女人是我妈妈。"),
+    "kid": ("一个小孩", "这个小孩很开心。"),
+    "people": ("许多人", "公园里有许多人。"),
+    "friend": ("我的朋友", "他是我的朋友。"),
+    "mr": ("格林先生", "格林先生是我们的老师。"),
+    "mrs": ("怀特夫人", "怀特夫人很友善。"),
+    "miss": ("李老师", "李老师教英语。"),
+    "ms": ("王女士", "王女士是我的阿姨。"),
+    "am": ("我是", "我是一名小学生。"),
+    "is": ("他是", "她是我的姐姐。"),
+    "are": ("我们是", "我们是学生。"),
+    "be": ("要快乐", "做一个好孩子。"),
+    "can": ("我能", "我会游泳。"),
+    "will": ("我会", "我会帮助你。"),
+    "should": ("你应该", "你应该去睡觉。"),
+    "must": ("你必须", "你必须洗手。"),
+    "let": ("我们走吧", "我们一起玩吧。"),
+    "have": ("看一看", "我有一本新书。"),
+    "has": ("他有", "她有一只猫。"),
+    "do": ("做作业", "我做我的作业。"),
+    "go": ("回家", "我们回家吧。"),
+    "come": ("进来", "请进。"),
+    "come on": ("加油", "加油，你能行！"),
+    "look": ("看", "看这幅画。"),
+    "listen": ("听", "听老师说。"),
+    "play": ("踢足球", "我放学后踢足球。"),
+    "like": ("喜欢苹果", "我喜欢苹果。"),
+    "love": ("爱你", "我爱我的妈妈。"),
+    "want": ("想要", "我想吃东西。"),
+    "need": ("需要帮助", "我需要你的帮助。"),
+    "know": ("我知道", "我知道答案。"),
+    "think": ("我认为", "我认为它很好。"),
+    "see": ("我看见", "我看见一只鸟。"),
+    "watch": ("看电视", "我晚上看电视。"),
+    "hear": ("听见我", "你能听见我吗？"),
+    "find": ("找到它", "我找不到我的钢笔。"),
+    "get": ("起床", "我七点起床。"),
+    "give": ("给我", "请给我一本书。"),
+    "take": ("坐公交", "我坐公交去学校。"),
+    "put": ("穿上", "穿上你的外套。"),
+    "make": ("做蛋糕", "妈妈会做蛋糕。"),
+    "eat": ("吃苹果", "我每天吃一个苹果。"),
+    "drink": ("喝水", "请喝些水。"),
+    "read": ("读书", "我读一本书。"),
+    "write": ("写一个词", "请写下你的名字。"),
+    "speak": ("说英语", "我会说英语。"),
+    "talk": ("交谈", "我们和李老师谈谈吧。"),
+    "tell": ("告诉我", "请给我讲个故事。"),
+    "say": ("打招呼", "和你的朋友们打个招呼。"),
+    "ask": ("问问题", "我可以问个问题吗？"),
+    "answer": ("回答问题", "请回答这个问题。"),
+    "study": ("学英语", "我每天学英语。"),
+    "learn": ("学英语", "我在学校学英语。"),
+    "teach": ("教我", "李老师教我们英语。"),
+    "help": ("帮助我", "你能帮助我吗？"),
+    "work": ("去上班", "我爸爸去上班。"),
+    "swim": ("去游泳", "我会游泳。"),
+    "run": ("跑得快", "我能跑得很快。"),
+    "jump": ("跳得高", "青蛙会跳。"),
+    "walk": ("步行去学校", "我步行去学校。"),
+    "dance": ("跳舞跳得好", "她舞跳得很好。"),
+    "sing": ("唱一首歌", "我们唱一首歌吧。"),
+    "draw": ("画一幅画", "我会画猫。"),
+    "open": ("开门", "请开门。"),
+    "close": ("关窗", "请关窗。"),
+    "sit": ("坐下", "请坐下。"),
+    "stand": ("起立", "请起立。"),
+    "sleep": ("去睡觉", "我九点睡觉。"),
+    "wake": ("醒来", "我七点醒来。"),
+    "buy": ("买一本书", "我想买一本书。"),
+    "boil": ("一个疖子", "他胳膊上长了一个疖子。"),
+    "sell": ("卖水果", "他们卖苹果。"),
+    "use": ("用钢笔", "我用铅笔。"),
+    "try": ("再试一次", "请再试一次。"),
+    "keep": ("保持安静", "请保持安静。"),
+    "live": ("住在", "我住在北京。"),
+    "move": ("继续", "请搬一下你的椅子。"),
+    "meet": ("很高兴见到你", "很高兴见到你。"),
+    "call": ("给我打电话", "请明天给我打电话。"),
+    "show": ("给我看", "给我看看你的书。"),
+    "share": ("分享", "我们一起分蛋糕吧。"),
+    "catch": ("接球", "我会接球。"),
+    "fly": ("放风筝", "我在公园放风筝。"),
+    "ride": ("骑自行车", "我骑自行车去学校。"),
+    "drive": ("开车", "我爸爸会开车。"),
+    "hurt": ("伤到腿", "我的腿疼。"),
+    "feel": ("感到开心", "我今天感到开心。"),
+    "hope": ("我希望", "我希望你一切都好。"),
+    "worry": ("别担心", "别担心。"),
+    "hurry": ("快点", "请快点。"),
+    "exercise": ("做运动", "我每天早做运动。"),
+    "visit": ("看望奶奶", "我星期天看望奶奶。"),
+    "travel": ("坐火车旅行", "我们坐火车旅行。"),
+    "wait": ("等待", "请等我。"),
+    "stop": ("停止说话", "请停下来。"),
+    "start": ("开始上课", "八点开始上课。"),
+    "begin": ("开始上课", "我们开始吧。"),
+    "finish": ("完成作业", "我完成作业了。"),
+    "turn": ("向左转", "请向左转。"),
+    "wash": ("洗手", "洗你的手。"),
+    "wear": ("戴帽子", "我戴一顶红帽子。"),
+    "cook": ("做晚饭", "妈妈会做晚饭。"),
+    "arrive": ("到达", "我们八点到学校。"),
+    "may": ("我可以吗", "我可以进来吗？"),
+    "new year": ("新年快乐", "新年快乐！"),
+    "children's day": ("儿童节快乐", "儿童节快乐！"),
+    "national day": ("国庆节快乐", "国庆节快乐！"),
+    "mid-autumn festival": ("中秋节快乐", "中秋节快乐！"),
+    "spring festival": ("春节快乐", "春节快乐！"),
+    "christmas": ("圣诞快乐", "圣诞快乐！"),
+    "o'clock": ("七点钟", "现在是七点钟。"),
+    "pe": ("体育课", "我们今天有体育课。"),
+    "tv": ("看电视", "我晚上看电视。"),
+    "t-shirt": ("一件 T 恤", "我穿着一件 T 恤。"),
+}
+
 
 def _article(term: str) -> str:
     key = term.lower()
@@ -390,52 +515,224 @@ def _clip(text: str, limit: int) -> str:
     return text[:limit]
 
 
-def usage_for(term: str, meaning: str = "", notes: str = "") -> tuple[str, str]:
+def first_sense(meaning: str) -> str:
+    m = (meaning or "").strip()
+    m = re.sub(r"[（(][^）)]*[）)]", "", m).strip()
+    for sep in ("；", ";", "，", ",", "、", "/"):
+        if sep in m:
+            m = m.split(sep, 1)[0].strip()
+    return m
+
+
+def _adj_stem(gloss: str) -> str:
+    """去掉释义末尾的「的」，便于再拼「的书 / 的一天」。"""
+    g = (gloss or "").strip()
+    return g[:-1] if g.endswith("的") else g
+
+
+def _measure(term: str, gloss: str) -> str:
+    """小学常用量词。"""
+    t = (term or "").lower()
+    g = gloss or ""
+    if t in {"book", "notebook", "dictionary", "magazine", "newspaper"} or "书" in g:
+        return "一本"
+    if any(x in g for x in ("猫", "狗", "鸟", "兔", "猪", "鸡", "鸭", "鱼", "熊", "虎")):
+        return "一只"
+    if any(x in g for x in ("水", "奶", "汁", "茶", "汤", "油")):
+        return "一杯"
+    return "一个"
+
+
+def translate_usage(
+    term: str,
+    meaning: str,
+    notes: str,
+    phrase: str,
+    example: str,
+) -> tuple[str, str]:
+    """根据英文短语/例句与单词释义，生成对应中文。"""
+    key = (term or "").strip().lower()
+    if key in SPECIAL_ZH:
+        return SPECIAL_ZH[key]
+
+    g = first_sense(meaning) or term
+    p = (phrase or "").strip()
+    e = (example or "").strip()
+    pl = p.lower()
+    el = e.lower()
+    raw = (term or "").strip()
+    raw_l = raw.lower()
+    m = _measure(raw_l, g)
+    adj = _adj_stem(g)
+
+    # —— 分类备注 ——
+    if "数词" in notes and "序数" not in notes:
+        if key == "zero":
+            return "零个苹果", "有零个苹果。"
+        if key == "one":
+            return "一本书", "我有一本书。"
+        if key == "hundred":
+            return "一百", "我有一百张邮票。"
+        return f"{g}本书", f"我有{g}本书。"
+
+    if "序数词" in notes:
+        return f"第{g}天", f"今天是第{g}天。"
+
+    if "星期" in notes:
+        return f"在{g}", f"我们{g}有英语课。"
+
+    if "月份" in notes:
+        return f"在{g}", f"我的生日在{g}。"
+
+    if "节日" in notes:
+        return f"{g}快乐", f"{g}快乐！"
+
+    # —— 高频模板 ——
+    phrase_zh = ""
+    example_zh = ""
+
+    if pl in {f"a {raw_l}", f"an {raw_l}"}:
+        phrase_zh = f"{m}{g}"
+        if el in {f"this is a {raw_l}.", f"this is an {raw_l}."}:
+            example_zh = f"这是{m}{g}。"
+        elif el == f"i like {raw_l}.":
+            example_zh = f"我喜欢{g}。"
+
+    if pl == raw_l:
+        phrase_zh = phrase_zh or g
+        if el == f"i like {raw_l}.":
+            example_zh = f"我喜欢{g}。"
+
+    if pl == f"a {raw_l} book":
+        phrase_zh = f"一本{adj}的书"
+        if el == f"this is a {raw_l} book.":
+            example_zh = f"这是一本{adj}的书。"
+
+    if pl == f"{raw_l} day":
+        phrase_zh = f"{adj}的一天"
+        if el == f"it is a {raw_l} day.":
+            example_zh = f"这是{adj}的一天。"
+
+    if pl == f"{raw_l} books":
+        phrase_zh = f"{g}本书"
+        if el == f"i have {raw_l} books.":
+            example_zh = f"我有{g}本书。"
+
+    if pl == f"the {raw_l} day":
+        phrase_zh = f"第{g}天"
+        if el == f"today is the {raw_l} day.":
+            example_zh = f"今天是第{g}天。"
+
+    if pl == f"in {raw_l}":
+        phrase_zh = f"在{g}"
+        if el == f"my birthday is in {raw_l}.":
+            example_zh = f"我的生日在{g}。"
+
+    if pl == f"on {raw_l}":
+        phrase_zh = f"在{g}"
+        if el == f"we have english on {raw_l}.":
+            example_zh = f"我们{g}有英语课。"
+
+    if pl == f"my {raw_l}":
+        phrase_zh = f"我的{g}"
+        if el == f"this is my {raw_l}.":
+            example_zh = f"这是我的{g}。"
+
+    if pl == f"happy {raw_l}":
+        phrase_zh = f"{g}快乐"
+        if el in {f"happy {raw_l}!", f"happy {raw_l}."}:
+            example_zh = f"{g}快乐！"
+
+    if pl == f"{raw_l} it":
+        phrase_zh = f"{g}它"
+        if el == f"i {raw_l} it every day.":
+            example_zh = f"我每天都{g}它。"
+
+    if pl == f"{raw_l} now":
+        phrase_zh = f"现在{g}"
+        if el == f"let's {raw_l}.":
+            example_zh = f"我们{g}吧。"
+
+    if not phrase_zh:
+        # 把英文里的单词替换成释义，再套一层简短说明
+        if raw_l and raw_l in pl:
+            phrase_zh = p
+            for form in {raw, raw_l, raw.capitalize()}:
+                phrase_zh = phrase_zh.replace(form, g)
+            # 仍全是拉丁字母则退回释义
+            if re.fullmatch(r"[A-Za-z0-9 \-'.]+", phrase_zh):
+                phrase_zh = g
+        else:
+            phrase_zh = g
+
+    if not example_zh:
+        if el == f"this is a {raw_l}.":
+            example_zh = f"这是一个{g}。"
+        elif el == f"this is an {raw_l}.":
+            example_zh = f"这是一个{g}。"
+        elif el == f"i like {raw_l}.":
+            example_zh = f"我喜欢{g}。"
+        elif el.startswith("let's ") and el.endswith("."):
+            example_zh = f"我们{g}吧。"
+        elif raw_l and raw_l in el:
+            example_zh = e
+            for form in {raw, raw_l, raw.capitalize()}:
+                example_zh = example_zh.replace(form, g)
+            if re.fullmatch(r"[A-Za-z0-9 \-'.?!]+", example_zh):
+                example_zh = f"例句：{g}。"
+            elif not example_zh.endswith(("。", "！", "？")):
+                example_zh += "。"
+        else:
+            example_zh = f"和「{g}」有关的例句。"
+
+    return _clip(phrase_zh, 200), _clip(example_zh, 400)
+
+
+def usage_for(term: str, meaning: str = "", notes: str = "") -> tuple[str, str, str, str]:
+    """返回 (短语, 短语中文, 例句, 例句中文)。"""
     raw = (term or "").strip()
     if not raw:
-        return "", ""
+        return "", "", "", ""
     key = raw.lower()
 
     if "数词" in notes and "序数" not in notes:
         if key == "zero":
-            return "zero apples", "There are zero apples."
-        if key == "one":
-            return "one book", "I have one book."
-        if key == "hundred":
-            return "one hundred", "I have one hundred stamps."
-        return f"{raw} books", f"I have {raw} books."
-
-    if "序数词" in notes:
-        return f"the {raw} day", f"Today is the {raw} day."
-
-    if "星期" in notes:
-        return f"on {raw}", f"We have English on {raw}."
-
-    if "月份" in notes:
-        return f"in {raw}", f"My birthday is in {raw}."
-
-    if key in SPECIAL:
+            phrase, example = "zero apples", "There are zero apples."
+        elif key == "one":
+            phrase, example = "one book", "I have one book."
+        elif key == "hundred":
+            phrase, example = "one hundred", "I have one hundred stamps."
+        else:
+            phrase, example = f"{raw} books", f"I have {raw} books."
+    elif "序数词" in notes:
+        phrase, example = f"the {raw} day", f"Today is the {raw} day."
+    elif "星期" in notes:
+        phrase, example = f"on {raw}", f"We have English on {raw}."
+    elif "月份" in notes:
+        phrase, example = f"in {raw}", f"My birthday is in {raw}."
+    elif key in SPECIAL:
         phrase, example = SPECIAL[key]
-        return _clip(phrase, 200), _clip(example, 400)
-
-    if "节日" in notes:
-        return f"Happy {raw}", f"Happy {raw}!"
-
-    if key in VERBS:
-        return f"{raw} it", f"I {raw} it every day."
-
-    meaning = meaning or ""
-    if meaning.endswith("的") or "的；" in meaning or meaning.endswith("的）"):
-        if key.endswith("y") and key not in {"boy", "toy", "day"}:
-            return f"{raw} day", f"It is a {raw} day."
-        return f"a {raw} book", f"This is a {raw} book."
-
-    if any(mark in meaning for mark in ("……", "；下雨", "；下雪", "；购物")):
-        return f"{raw} now", f"Let's {raw}."
-
-    phrase = _article(raw)
-    if phrase.lower() == raw.lower():
-        example = f"I like {raw}."
+        phrase, example = _clip(phrase, 200), _clip(example, 400)
+    elif "节日" in notes:
+        phrase, example = f"Happy {raw}", f"Happy {raw}!"
+    elif key in VERBS:
+        phrase, example = f"{raw} it", f"I {raw} it every day."
     else:
-        example = f"This is {phrase}."
-    return _clip(phrase, 200), _clip(example, 400)
+        meaning = meaning or ""
+        if meaning.endswith("的") or "的；" in meaning or meaning.endswith("的）"):
+            if key.endswith("y") and key not in {"boy", "toy", "day"}:
+                phrase, example = f"{raw} day", f"It is a {raw} day."
+            else:
+                phrase, example = f"a {raw} book", f"This is a {raw} book."
+        elif any(mark in meaning for mark in ("……", "；下雨", "；下雪", "；购物")):
+            phrase, example = f"{raw} now", f"Let's {raw}."
+        else:
+            phrase = _article(raw)
+            if phrase.lower() == raw.lower():
+                example = f"I like {raw}."
+            else:
+                example = f"This is {phrase}."
+            phrase, example = _clip(phrase, 200), _clip(example, 400)
+
+    phrase_zh, example_zh = translate_usage(raw, meaning, notes, phrase, example)
+    return phrase, phrase_zh, example, example_zh

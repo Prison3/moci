@@ -135,7 +135,9 @@ def init_schema(db: Database) -> None:
             pos TEXT NOT NULL DEFAULT '',
             meaning TEXT NOT NULL,
             phrase TEXT NOT NULL DEFAULT '',
+            phrase_zh TEXT NOT NULL DEFAULT '',
             example TEXT NOT NULL DEFAULT '',
+            example_zh TEXT NOT NULL DEFAULT '',
             notes TEXT NOT NULL DEFAULT '',
             created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
             created_at TEXT NOT NULL,
@@ -144,6 +146,8 @@ def init_schema(db: Database) -> None:
         """
     )
     _add_column(db, "words", "phrase", "phrase TEXT NOT NULL DEFAULT ''")
+    _add_column(db, "words", "phrase_zh", "phrase_zh TEXT NOT NULL DEFAULT ''")
+    _add_column(db, "words", "example_zh", "example_zh TEXT NOT NULL DEFAULT ''")
     _add_column(db, "words", "pos", "pos TEXT NOT NULL DEFAULT ''")
 
     db.execute(
