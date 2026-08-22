@@ -306,6 +306,14 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
     }
 
     // ------------------------------------------------------------------
+    // 应用版本
+
+    suspend fun appInfo(): AppReleaseInfo {
+        val json = execute("GET", "/api/v1/app/info")
+        return AppReleaseInfo.from(json)
+    }
+
+    // ------------------------------------------------------------------
     // 认证
 
     suspend fun login(username: String, password: String): User {

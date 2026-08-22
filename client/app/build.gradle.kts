@@ -11,6 +11,24 @@ val mociCleartext: Boolean = providers.gradleProperty("moci.cleartext").getOrEls
 val mociGrpcPort: Int = providers.gradleProperty("moci.grpcPort").getOrElse("50051").toInt()
 val grpcVersion = "1.68.1"
 val protobufVersion = "3.25.5"
+val repoRoot = rootProject.layout.projectDirectory.dir("..").asFile
+
+fun gitCommitCount(): Int = runCatching {
+    providers.exec {
+        workingDir(repoRoot)
+        commandLine("git", "rev-list", "--count", "HEAD")
+    }.standardOutput.asText.get().trim().toInt()
+}.getOrElse { 1 }
+
+fun gitDescribe(): String = runCatching {
+    providers.exec {
+        workingDir(repoRoot)
+        commandLine("git", "describe", "--tags", "--always")
+    }.standardOutput.asText.get().trim()
+}.getOrElse { "dev" }
+
+val mociVersionCode = gitCommitCount()
+val mociVersionName = "$mociVersionCode - ${gitDescribe()}"
 
 android {
     namespace = "com.moci.words"
@@ -20,8 +38,8 @@ android {
         applicationId = "com.moci.words"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = mociVersionCode
+        versionName = mociVersionName
 
         buildConfigField("String", "BASE_URL", "\"$mociBaseUrl\"")
         buildConfigField("int", "GRPC_PORT", "$mociGrpcPort")

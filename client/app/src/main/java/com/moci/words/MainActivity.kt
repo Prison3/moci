@@ -35,9 +35,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
+import com.moci.words.BuildConfig
 import com.moci.words.api.ApiException
+import com.moci.words.api.AppReleaseInfo
 import com.moci.words.api.SessionListener
 import com.moci.words.api.User
+import com.moci.words.update.AppUpdater
 import com.moci.words.ui.AuthScreen
 import com.moci.words.ui.HomeScreen
 import com.moci.words.ui.InkSoft
@@ -50,6 +53,7 @@ import com.moci.words.ui.Paper
 import com.moci.words.ui.Paper2
 import com.moci.words.ui.Pine
 import com.moci.words.ui.StudyScreen
+import com.moci.words.ui.UpdateDialog
 import com.moci.words.ui.UsersScreen
 import com.moci.words.ui.WordsScreen
 import com.moci.words.ui.toast
@@ -66,6 +70,10 @@ class MainActivity : ComponentActivity() {
             MociTheme {
                 var user by remember { mutableStateOf<User?>(app.api.cachedUser) }
                 var booting by remember { mutableStateOf(true) }
+                var updateInfo by remember { mutableStateOf<AppReleaseInfo?>(null) }
+                var updating by remember { mutableStateOf(false) }
+                val context = LocalContext.current
+                val scope = rememberCoroutineScope()
 
                 // 会话过期（任意请求 401）→ 回登录页
                 remember {
@@ -79,6 +87,12 @@ class MainActivity : ComponentActivity() {
                 }
 
                 androidx.compose.runtime.LaunchedEffect(Unit) {
+                    runCatching {
+                        val info = app.api.appInfo()
+                        if (info.versionCode > BuildConfig.VERSION_CODE) {
+                            updateInfo = info
+                        }
+                    }
                     if (app.api.hasSession) {
                         user = try {
                             app.api.me()
@@ -90,6 +104,33 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     booting = false
+                }
+
+                updateInfo?.let { info ->
+                    UpdateDialog(
+                        info = info,
+                        busy = updating,
+                        onDismiss = { if (!updating) updateInfo = null },
+                        onUpdate = {
+                            if (!AppUpdater.canInstallPackages(context)) {
+                                toast("请先允许安装未知来源应用。")
+                                AppUpdater.openInstallPermissionSettings(context)
+                                return@UpdateDialog
+                            }
+                            updating = true
+                            scope.launch {
+                                try {
+                                    val apk = AppUpdater.downloadApk(context, info.downloadUrl)
+                                    AppUpdater.installApk(context, apk)
+                                    updateInfo = null
+                                } catch (e: Exception) {
+                                    toast(e.message ?: "更新失败，请稍后重试。")
+                                } finally {
+                                    updating = false
+                                }
+                            }
+                        },
+                    )
                 }
 
                 Box(

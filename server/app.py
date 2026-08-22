@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import hashlib
 import os
 import re
@@ -39,6 +40,7 @@ BASE_DIR = Path(__file__).resolve().parent
 INSTANCE_DIR = BASE_DIR / "instance"
 DOWNLOADS_DIR = BASE_DIR / "downloads"
 APP_APK_NAME = "moci.apk"
+APP_VERSION_FILE = "app_version.json"
 APP_VERSION_NAME = os.environ.get("APP_VERSION_NAME", "1.0.0")
 APP_VERSION_CODE = int(os.environ.get("APP_VERSION_CODE", "1"))
 _SCHEMA_READY = False
@@ -1538,14 +1540,28 @@ def app_apk_path() -> Path:
     return DOWNLOADS_DIR / APP_APK_NAME
 
 
+def app_version_meta() -> tuple[str, int]:
+    path = DOWNLOADS_DIR / APP_VERSION_FILE
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            name = str(data.get("version_name") or APP_VERSION_NAME)
+            code = int(data.get("version_code") or APP_VERSION_CODE)
+            return name, code
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+    return APP_VERSION_NAME, APP_VERSION_CODE
+
+
 def app_release_info() -> dict | None:
     path = app_apk_path()
     if not path.is_file():
         return None
     stat = path.stat()
+    version_name, version_code = app_version_meta()
     return {
-        "version_name": APP_VERSION_NAME,
-        "version_code": APP_VERSION_CODE,
+        "version_name": version_name,
+        "version_code": version_code,
         "filename": APP_APK_NAME,
         "size_bytes": stat.st_size,
         "updated_at": datetime.fromtimestamp(stat.st_mtime).replace(microsecond=0).isoformat(sep=" "),

@@ -71,6 +71,8 @@ Android 客户端安装包下载：
 ./scripts/build_release_apk.sh
 ```
 
+版本号策略（参考 actor）：`versionCode` = `git rev-list --count HEAD`，`versionName` = `{提交数} - {git describe}`。构建脚本会同步生成 `server/downloads/app_version.json`，供 `/api/v1/app/info` 与 App 内更新检查使用。App 启动时会对比服务端 `version_code`，有新版则提示下载安装。
+
 默认会编译并上传到服务器（`root@cn:/root/moci/server/downloads/moci.apk`）。仅本地构建不上传：
 
 ```bash

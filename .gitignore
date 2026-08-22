@@ -3,6 +3,7 @@ __pycache__/
 *.db
 instance/
 server/downloads/*.apk
+server/downloads/app_version.json
 .env
 .venv/
 venv/

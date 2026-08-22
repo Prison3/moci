@@ -15,6 +15,22 @@ private fun JSONObject.optFlag(key: String, default: Boolean = true): Boolean {
 
 // 与服务端 /api/v1 响应对应的数据模型。字段名沿用服务端 snake_case 的直接映射。
 
+data class AppReleaseInfo(
+    val versionCode: Int,
+    val versionName: String,
+    val downloadUrl: String,
+    val sizeBytes: Long,
+) {
+    companion object {
+        fun from(o: org.json.JSONObject) = AppReleaseInfo(
+            versionCode = o.optInt("version_code"),
+            versionName = o.optString("version_name"),
+            downloadUrl = o.optString("download_url"),
+            sizeBytes = o.optLong("size_bytes"),
+        )
+    }
+}
+
 data class User(
     val id: Int,
     val username: String,

@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.moci.words.BuildConfig
 import com.moci.words.MociApp
 import com.moci.words.api.ApiException
 import com.moci.words.api.User
@@ -76,6 +77,7 @@ fun AuthScreen(onLogin: (User) -> Unit) {
             fontFamily = SerifFamily,
         )
         Text("公共词库，各自背诵", fontSize = 14.sp, color = InkSoft)
+        Text("v${BuildConfig.VERSION_NAME}", fontSize = 11.sp, color = InkSoft)
         Spacer(Modifier.height(36.dp))
 
         // 登录 / 注册 切换

@@ -32,12 +32,19 @@ fi
 
 mkdir -p "$OUT"
 cp "$BUILT" "$OUT/$APK_NAME"
-echo "Release APK: $OUT/$APK_NAME"
+
+VERSION_CODE="$(git -C "$ROOT" rev-list --count HEAD)"
+VERSION_NAME="${VERSION_CODE} - $(git -C "$ROOT" describe --tags --always)"
+cat > "$OUT/app_version.json" <<EOF
+{"version_code": ${VERSION_CODE}, "version_name": "${VERSION_NAME}"}
+EOF
+
+echo "Release APK: $OUT/$APK_NAME (v${VERSION_NAME})"
 ls -lh "$OUT/$APK_NAME"
 
 if [[ "${MOCI_UPLOAD:-1}" != "0" ]]; then
   echo "上传到 $REMOTE ..."
   ssh "$REMOTE_HOST" "mkdir -p '$REMOTE_DIR'"
-  scp "$OUT/$APK_NAME" "$REMOTE"
+  scp "$OUT/$APK_NAME" "$OUT/app_version.json" "$REMOTE_HOST:$REMOTE_DIR/"
   echo "上传完成"
 fi
