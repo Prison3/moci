@@ -59,8 +59,21 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
     private fun effectiveGrpcPort(): Int =
         GrpcApiClient.portFromBaseUrl(baseUrl, grpcPort)
 
-    private val grpcApi: GrpcApiClient
-        get() = GrpcApiClient(grpcHost(), effectiveGrpcPort())
+    private var grpcApiClient: GrpcApiClient? = null
+    private var grpcApiEndpoint: String? = null
+
+    private fun grpcEndpointKey(): String = "${grpcHost()}:${effectiveGrpcPort()}"
+
+    private fun grpcApi(): GrpcApiClient {
+        val key = grpcEndpointKey()
+        val existing = grpcApiClient
+        if (existing != null && grpcApiEndpoint == key) return existing
+        existing?.shutdown()
+        return GrpcApiClient(grpcHost(), effectiveGrpcPort()).also {
+            grpcApiClient = it
+            grpcApiEndpoint = key
+        }
+    }
 
     var csrfToken: String?
         get() = prefs.getString("csrf", null)
@@ -266,7 +279,7 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
         body: JSONObject? = null,
         query: Map<String, String?> = emptyMap(),
     ): JSONObject = withContext(Dispatchers.IO) {
-        val result = grpcApi.invoke(
+        val result = grpcApi().invoke(
             method = method,
             path = path,
             session = prefs.getString("session", null),
@@ -324,6 +337,9 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
             put("password", password)
         })
         saveAuth(json)
+        if (!hasSession) {
+            throw ApiException("登录失败：服务器未返回会话，请确认服务端已更新。", "no_session")
+        }
         rememberUsername(username)
         return User.from(json.getJSONObject("user"))
     }
@@ -478,10 +494,7 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
         level: String = "",
         force: Boolean = false,
     ): Pair<List<Word>, Int> =
-        cachedGet("words:${q.trim()}:${level.trim()}", force, { json ->
-            val arr = json.optJSONArray("words") ?: JSONArray()
-            (0 until arr.length()).map { Word.from(arr.getJSONObject(it)) } to json.optInt("total")
-        }) {
+        cachedGet(wordsCacheKey(q, level), force, ::parseWordsResponse) {
             execute(
                 "GET",
                 "/api/v1/words",
@@ -491,6 +504,20 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
                 ),
             )
         }
+
+    /** 仅读本地 Room 缓存，用于词库页首屏即时展示。 */
+    suspend fun wordsCached(q: String = "", level: String = ""): Pair<List<Word>, Int>? =
+        withContext(Dispatchers.IO) {
+            val body = cache.read(cacheUserId(), wordsCacheKey(q, level)) ?: return@withContext null
+            parseWordsResponse(JSONObject(body))
+        }
+
+    private fun wordsCacheKey(q: String, level: String) = "words:${q.trim()}:${level.trim()}"
+
+    private fun parseWordsResponse(json: JSONObject): Pair<List<Word>, Int> {
+        val arr = json.optJSONArray("words") ?: JSONArray()
+        return (0 until arr.length()).map { Word.from(arr.getJSONObject(it)) } to json.optInt("total")
+    }
 
     /** 学生按进度查看自己的单词：status 为空即全部。 */
     suspend fun myWords(status: String = "", q: String = "", force: Boolean = false): Pair<List<Word>, Int> =
@@ -616,6 +643,9 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
     fun saveBaseUrl(url: String) {
         baseUrl = normalizeBaseUrl(url)
         settingsPrefs.edit().putString(KEY_BASE_URL, baseUrl).apply()
+        grpcApiClient?.shutdown()
+        grpcApiClient = null
+        grpcApiEndpoint = null
     }
 
     companion object {

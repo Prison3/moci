@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.moci.words.MociApp
+import com.moci.words.api.ApiClient
 import com.moci.words.api.ApiException
 import com.moci.words.api.COMMON_POS_TAGS
 import com.moci.words.api.WORD_LEVELS
@@ -47,76 +49,103 @@ import com.moci.words.api.Word
 import com.moci.words.api.joinPosTags
 import com.moci.words.api.levelLabelOf
 import com.moci.words.api.parsePosTags
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
-private sealed interface WordsView {
+sealed interface WordsView {
     data object List : WordsView
     data class Detail(val word: Word) : WordsView
     data class Form(val word: Word?) : WordsView
 }
 
-/** 管理员词库：搜索列表 / 详情 / 新建与编辑。 */
-@Composable
-fun WordsScreen(wordsKey: Long = 0L) {
-    val app = LocalContext.current.applicationContext as MociApp
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+/** 管理员词库状态，由 MainScaffold 持有以跨 Tab 切换保留。 */
+@Stable
+class WordsScreenState(private val api: ApiClient) {
+    var view by mutableStateOf<WordsView>(WordsView.List)
+    var query by mutableStateOf("")
+    var level by mutableStateOf("")
+    var words by mutableStateOf<List<Word>?>(null)
+    var total by mutableStateOf(0)
+    var error by mutableStateOf<String?>(null)
 
-    var view by remember { mutableStateOf<WordsView>(WordsView.List) }
-    var query by remember { mutableStateOf("") }
-    var level by remember { mutableStateOf("") }
-    var words by remember { mutableStateOf<List<Word>?>(null) }
-    var total by remember { mutableStateOf(0) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    fun load(q: String = query, lv: String = level) {
-        loading = true
+    fun load(scope: CoroutineScope, q: String = query, lv: String = level) {
         error = null
         scope.launch {
+            if (words == null) {
+                runCatching { api.wordsCached(q, lv) }.getOrNull()?.let { (list, n) ->
+                    words = list
+                    total = n
+                }
+            }
             try {
-                val (list, n) = app.api.words(q, lv)
+                val (list, n) = api.words(q, lv)
                 words = list
                 total = n
             } catch (e: ApiException) {
-                error = e.message
+                if (words == null) error = e.message
             } catch (e: Exception) {
-                error = "加载失败，请稍后重试。"
+                if (words == null) error = "加载失败，请稍后重试。"
             }
-            loading = false
         }
     }
-    LaunchedEffect(wordsKey) { load() }
 
-    when (val v = view) {
+    fun deleteWord(
+        scope: CoroutineScope,
+        word: Word,
+        onSuccess: (String) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        scope.launch {
+            try {
+                val msg = api.wordDelete(word.id)
+                view = WordsView.List
+                onSuccess(msg)
+                load(scope)
+            } catch (e: ApiException) {
+                onError(e.message ?: "删除失败。")
+            } catch (e: Exception) {
+                onError("删除失败，请重试。")
+            }
+        }
+    }
+}
+
+@Composable
+fun rememberWordsScreenState(api: ApiClient, userId: Int): WordsScreenState =
+    remember(userId) { WordsScreenState(api) }
+
+/** 管理员词库：搜索列表 / 详情 / 新建与编辑。 */
+@Composable
+fun WordsScreen(state: WordsScreenState, wordsKey: Long = 0L) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(wordsKey) { state.load(scope) }
+
+    when (val v = state.view) {
         is WordsView.Form -> WordForm(
             initial = v.word,
             onDone = { message ->
                 context.toast(message)
-                view = WordsView.List
-                load()
+                state.view = WordsView.List
+                state.load(scope)
             },
             onCancel = {
-                view = v.word?.let { WordsView.Detail(it) } ?: WordsView.List
+                state.view = v.word?.let { WordsView.Detail(it) } ?: WordsView.List
             },
         )
 
         is WordsView.Detail -> WordDetail(
             word = v.word,
-            onBack = { view = WordsView.List },
-            onEdit = { view = WordsView.Form(v.word) },
+            onBack = { state.view = WordsView.List },
+            onEdit = { state.view = WordsView.Form(v.word) },
             onDelete = {
-                scope.launch {
-                    try {
-                        context.toast(app.api.wordDelete(v.word.id))
-                        view = WordsView.List
-                        load()
-                    } catch (e: ApiException) {
-                        context.toast(e.message ?: "删除失败。")
-                    } catch (e: Exception) {
-                        context.toast("删除失败，请重试。")
-                    }
-                }
+                state.deleteWord(
+                    scope = scope,
+                    word = v.word,
+                    onSuccess = { context.toast(it) },
+                    onError = { context.toast(it) },
+                )
             },
         )
 
@@ -129,16 +158,16 @@ fun WordsScreen(wordsKey: Long = 0L) {
             ) {
                 Box(Modifier.weight(1f)) {
                     MociTextField(
-                        value = query,
-                        onValueChange = { query = it },
+                        value = state.query,
+                        onValueChange = { state.query = it },
                         label = "搜索单词 / 释义 / 音标",
                     )
                 }
                 Spacer(Modifier.width(8.dp))
-                IconButton(onClick = { load(query, level) }) {
+                IconButton(onClick = { state.load(scope, state.query, state.level) }) {
                     Icon(MociIcons.Search, contentDescription = "搜索", tint = Pine)
                 }
-                IconButton(onClick = { view = WordsView.Form(null) }) {
+                IconButton(onClick = { state.view = WordsView.Form(null) }) {
                     Icon(MociIcons.Add, contentDescription = "录入单词", tint = Pine)
                 }
             }
@@ -148,29 +177,30 @@ fun WordsScreen(wordsKey: Long = 0L) {
                     .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                LevelChip("全部", level.isEmpty()) {
-                    level = ""
-                    load(query, "")
+                LevelChip("全部", state.level.isEmpty()) {
+                    state.level = ""
+                    state.load(scope, state.query, "")
                 }
                 WORD_LEVELS.forEach { lv ->
-                    LevelChip(levelLabelOf(lv), level == lv) {
-                        level = lv
-                        load(query, lv)
+                    LevelChip(levelLabelOf(lv), state.level == lv) {
+                        state.level = lv
+                        state.load(scope, state.query, lv)
                     }
                 }
             }
             Spacer(Modifier.height(6.dp))
 
+            val words = state.words
             when {
-                loading && words == null -> LoadingBox()
-                error != null && words == null -> ErrorBox(error!!) { load() }
-                words.isNullOrEmpty() -> EmptyBox(
+                state.error != null && words == null -> ErrorBox(state.error!!) { state.load(scope) }
+                words == null -> Unit
+                words.isEmpty() -> EmptyBox(
                     "词库还是空的",
                     "点右上角 + 录入第一个单词。",
                 )
                 else -> {
                     Text(
-                        "共 $total 词",
+                        "共 ${state.total} 词",
                         fontSize = 12.sp,
                         color = InkSoft,
                         modifier = Modifier.padding(horizontal = 20.dp),
@@ -182,8 +212,8 @@ fun WordsScreen(wordsKey: Long = 0L) {
                         ),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        items(words!!, key = { it.id }) { w ->
-                            WordRow(w) { view = WordsView.Detail(w) }
+                        items(words, key = { it.id }) { w ->
+                            WordRow(w) { state.view = WordsView.Detail(w) }
                         }
                     }
                 }

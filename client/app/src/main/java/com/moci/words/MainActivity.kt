@@ -57,6 +57,7 @@ import com.moci.words.ui.StudyScreen
 import com.moci.words.ui.UpdateDialog
 import com.moci.words.ui.UsersScreen
 import com.moci.words.ui.WordsScreen
+import com.moci.words.ui.rememberWordsScreenState
 import com.moci.words.ui.toast
 import kotlinx.coroutines.launch
 
@@ -199,6 +200,7 @@ private fun MainScaffold(
     var learningUserId by remember { mutableStateOf<Int?>(null) }
 
     var wordsKey by remember { mutableLongStateOf(app.api.wordsSyncKey) }
+    val wordsState = rememberWordsScreenState(app.api, user.id)
 
     LaunchedEffect(user.id) {
         app.api.onSettingsUpdated = if (user.isLearner) {
@@ -208,6 +210,7 @@ private fun MainScaffold(
         }
         app.api.onWordsUpdated = { wordsKey = app.api.wordsSyncKey }
         app.api.startSync(scope)
+        if (user.isAdmin) wordsState.load(scope)
     }
 
     // 学习页之外按返回键先回首页
@@ -249,7 +252,7 @@ private fun MainScaffold(
                     onUserChanged = onUserChanged,
                     onLogout = onLogout,
                 )
-                "words" -> WordsScreen(wordsKey = wordsKey)
+                "words" -> WordsScreen(state = wordsState, wordsKey = wordsKey)
                 "users" -> UsersScreen(onGotoLearning = { uid ->
                     learningUserId = uid
                     currentTab = "learning"

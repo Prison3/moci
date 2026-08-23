@@ -16,11 +16,18 @@ class GrpcApiClient(
     private val host: String,
     private val port: Int,
 ) {
-    private val channel: ManagedChannel by lazy {
+    private val channelLazy = lazy {
         OkHttpChannelBuilder
             .forAddress(host, port)
             .usePlaintext()
             .build()
+    }
+    private val channel: ManagedChannel by channelLazy
+
+    fun shutdown() {
+        if (channelLazy.isInitialized() && !channel.isShutdown) {
+            channel.shutdown()
+        }
     }
 
     suspend fun invoke(

@@ -16,6 +16,20 @@ def _session_from_set_cookie(headers) -> str | None:
     return None
 
 
+def _session_from_client(client, prior: str | None) -> str | None:
+    """Flask test client 有时把 cookie 放进 jar 而不出现在 Set-Cookie 头里。"""
+    try:
+        getter = getattr(client, "get_cookie", None)
+        if not callable(getter):
+            return None
+        value = getter("session")
+        if value and value != prior:
+            return value
+    except Exception:
+        pass
+    return None
+
+
 def invoke_flask_api(
     app: Flask,
     method: str,
@@ -35,10 +49,11 @@ def invoke_flask_api(
         headers["X-CSRF-Token"] = csrf
 
     query_string = {k: v for k, v in (query or {}).items() if v}
+    incoming_session = (session or "").strip() or None
 
     with app.test_client() as client:
-        if session:
-            client.set_cookie("session", session)
+        if incoming_session:
+            client.set_cookie("session", incoming_session)
 
         http_method = (method or "GET").upper()
         call = getattr(client, http_method.lower())
@@ -60,6 +75,8 @@ def invoke_flask_api(
             }
 
         new_session = _session_from_set_cookie(resp.headers)
+        if not new_session:
+            new_session = _session_from_client(client, incoming_session)
         csrf_token = payload.get("csrf_token") if isinstance(payload, dict) else None
 
         return {
