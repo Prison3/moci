@@ -185,6 +185,7 @@ def init_schema(db: Database) -> None:
             know_spell INTEGER NOT NULL DEFAULT 1,
             know_pos INTEGER NOT NULL DEFAULT 1,
             know_phonetic INTEGER NOT NULL DEFAULT 1,
+            reward_minutes INTEGER NOT NULL DEFAULT 30,
             created_at TEXT NOT NULL
         )
         """
@@ -208,6 +209,9 @@ def init_schema(db: Database) -> None:
     _add_column(db, "users", "know_spell", "know_spell INTEGER NOT NULL DEFAULT 1")
     _add_column(db, "users", "know_pos", "know_pos INTEGER NOT NULL DEFAULT 1")
     _add_column(db, "users", "know_phonetic", "know_phonetic INTEGER NOT NULL DEFAULT 1")
+    _add_column(
+        db, "users", "reward_minutes", "reward_minutes INTEGER NOT NULL DEFAULT 30"
+    )
 
     if "words" not in _tables(db):
         _create_words_table(db)

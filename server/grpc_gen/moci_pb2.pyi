@@ -45,7 +45,7 @@ class Ready(_message.Message):
     def __init__(self, user_id: _Optional[int] = ...) -> None: ...
 
 class UserSettings(_message.Message):
-    __slots__ = ("id", "username", "role", "status", "daily_words", "daily_review", "know_speak", "know_spell", "know_pos", "know_phonetic")
+    __slots__ = ("id", "username", "role", "status", "daily_words", "daily_review", "know_speak", "know_spell", "know_pos", "know_phonetic", "reward_minutes")
     ID_FIELD_NUMBER: _ClassVar[int]
     USERNAME_FIELD_NUMBER: _ClassVar[int]
     ROLE_FIELD_NUMBER: _ClassVar[int]
@@ -56,6 +56,7 @@ class UserSettings(_message.Message):
     KNOW_SPELL_FIELD_NUMBER: _ClassVar[int]
     KNOW_POS_FIELD_NUMBER: _ClassVar[int]
     KNOW_PHONETIC_FIELD_NUMBER: _ClassVar[int]
+    REWARD_MINUTES_FIELD_NUMBER: _ClassVar[int]
     id: int
     username: str
     role: str
@@ -66,7 +67,8 @@ class UserSettings(_message.Message):
     know_spell: bool
     know_pos: bool
     know_phonetic: bool
-    def __init__(self, id: _Optional[int] = ..., username: _Optional[str] = ..., role: _Optional[str] = ..., status: _Optional[str] = ..., daily_words: _Optional[int] = ..., daily_review: _Optional[int] = ..., know_speak: bool = ..., know_spell: bool = ..., know_pos: bool = ..., know_phonetic: bool = ...) -> None: ...
+    reward_minutes: int
+    def __init__(self, id: _Optional[int] = ..., username: _Optional[str] = ..., role: _Optional[str] = ..., status: _Optional[str] = ..., daily_words: _Optional[int] = ..., daily_review: _Optional[int] = ..., know_speak: bool = ..., know_spell: bool = ..., know_pos: bool = ..., know_phonetic: bool = ..., reward_minutes: _Optional[int] = ...) -> None: ...
 
 class SettingsUpdated(_message.Message):
     __slots__ = ("user",)

@@ -93,6 +93,7 @@ class GrpcSyncClient(
                             knowSpell = u.knowSpell,
                             knowPos = u.knowPos,
                             knowPhonetic = u.knowPhonetic,
+                            rewardMinutes = u.rewardMinutes.coerceIn(0, 180),
                         )
                         scope.launch {
                             runCatching { onSettingsUpdated?.invoke(user) }

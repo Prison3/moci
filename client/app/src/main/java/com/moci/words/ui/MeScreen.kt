@@ -261,6 +261,9 @@ private fun ChildSettingsCard(child: ChildInfo, onSaved: () -> Unit) {
     var knowSpell by remember(child.user.id, child.user.knowSpell) { mutableStateOf(child.user.knowSpell) }
     var knowPos by remember(child.user.id, child.user.knowPos) { mutableStateOf(child.user.knowPos) }
     var knowPhonetic by remember(child.user.id, child.user.knowPhonetic) { mutableStateOf(child.user.knowPhonetic) }
+    var rewardMinutes by remember(child.user.id, child.user.rewardMinutes) {
+        mutableStateOf(child.user.rewardMinutes.toString())
+    }
     var saving by remember { mutableStateOf(false) }
 
     PanelCard {
@@ -276,6 +279,13 @@ private fun ChildSettingsCard(child: ChildInfo, onSaved: () -> Unit) {
             value = dailyReview,
             onValueChange = { dailyReview = it.filter(Char::isDigit).take(2) },
             label = "每日复习（0–50）",
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        )
+        Spacer(Modifier.height(10.dp))
+        MociTextField(
+            value = rewardMinutes,
+            onValueChange = { rewardMinutes = it.filter(Char::isDigit).take(3) },
+            label = "游戏奖励时长（分钟，默认 30）",
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         )
         Spacer(Modifier.height(12.dp))
@@ -333,6 +343,7 @@ private fun ChildSettingsCard(child: ChildInfo, onSaved: () -> Unit) {
                         knowSpell,
                         knowPos,
                         knowPhonetic,
+                        (rewardMinutes.toIntOrNull() ?: 30).coerceIn(0, 180),
                     )
                     context.toast(msg)
                     onSaved()

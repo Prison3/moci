@@ -27,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -40,10 +41,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.moci.words.MociApp
 import com.moci.words.RewardQuota
 import kotlinx.coroutines.delay
 import kotlin.math.abs
@@ -57,30 +62,67 @@ private enum class RewardGame {
 /**
  * 今日任务奖励：内置小游戏大厅。
  * 记忆翻牌 / 点星星 / 快反应 / 贪吃蛇 / 坦克大战。
- * 每天最多玩 [RewardQuota.MAX_PLAYS] 局（点「开始」或「再玩一局」计一局）。
+ * 每天最多玩家长设置的分钟数（默认 30），只在对局进行中计时。
  */
 @Composable
 fun RewardGamesScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    val app = context.applicationContext as MociApp
+    val userId = app.api.cachedUser?.id ?: 0
+    val limitMinutes = app.api.cachedUser?.rewardMinutes ?: RewardQuota.DEFAULT_LIMIT_MINUTES
     var game by remember { mutableStateOf(RewardGame.Hub) }
-    var remaining by remember { mutableIntStateOf(RewardQuota.remaining(context)) }
+    var remainingMs by remember {
+        mutableLongStateOf(RewardQuota.remainingMs(context, userId, limitMinutes))
+    }
+    var sessionPlaying by remember { mutableStateOf(false) }
+    var appResumed by remember { mutableStateOf(true) }
+    val remaining = (remainingMs / 1000L).toInt()
 
     fun refreshRemaining() {
-        remaining = RewardQuota.remaining(context)
+        remainingMs = RewardQuota.remainingMs(context, userId, limitMinutes)
     }
 
-    /** 消耗一局；成功则返回 true。 */
     fun tryStartRound(): Boolean {
-        if (!RewardQuota.consume(context)) {
-            refreshRemaining()
-            return false
-        }
         refreshRemaining()
-        return true
+        return remainingMs > 0L
+    }
+
+    fun onPlayingChanged(active: Boolean) {
+        sessionPlaying = active && remainingMs > 0L
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> appResumed = true
+                Lifecycle.Event.ON_PAUSE -> appResumed = false
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(sessionPlaying, appResumed) {
+        if (!sessionPlaying || !appResumed) return@LaunchedEffect
+        while (sessionPlaying && appResumed) {
+            delay(1000)
+            remainingMs = RewardQuota.addUsed(context, userId, limitMinutes, 1000L)
+            if (remainingMs <= 0L) {
+                sessionPlaying = false
+                break
+            }
+        }
     }
 
     BackHandler {
-        if (game == RewardGame.Hub) onBack() else game = RewardGame.Hub
+        if (game == RewardGame.Hub) {
+            onBack()
+        } else {
+            sessionPlaying = false
+            game = RewardGame.Hub
+        }
     }
 
     Box(
@@ -92,32 +134,38 @@ fun RewardGamesScreen(onBack: () -> Unit) {
             RewardGame.Hub -> RewardHub(
                 onBack = onBack,
                 remaining = remaining,
+                limitMinutes = limitMinutes,
                 onPick = { game = it },
             )
             RewardGame.Memory -> MemoryGame(
                 remaining = remaining,
-                onBack = { game = RewardGame.Hub },
+                onBack = { sessionPlaying = false; game = RewardGame.Hub },
                 tryStart = ::tryStartRound,
+                onPlayingChanged = ::onPlayingChanged,
             )
             RewardGame.Stars -> StarsGame(
                 remaining = remaining,
-                onBack = { game = RewardGame.Hub },
+                onBack = { sessionPlaying = false; game = RewardGame.Hub },
                 tryStart = ::tryStartRound,
+                onPlayingChanged = ::onPlayingChanged,
             )
             RewardGame.Reflex -> ReflexGame(
                 remaining = remaining,
-                onBack = { game = RewardGame.Hub },
+                onBack = { sessionPlaying = false; game = RewardGame.Hub },
                 tryStart = ::tryStartRound,
+                onPlayingChanged = ::onPlayingChanged,
             )
             RewardGame.Snake -> SnakeGame(
                 remaining = remaining,
-                onBack = { game = RewardGame.Hub },
+                onBack = { sessionPlaying = false; game = RewardGame.Hub },
                 tryStart = ::tryStartRound,
+                onPlayingChanged = ::onPlayingChanged,
             )
             RewardGame.Tank -> TankGame(
                 remaining = remaining,
-                onBack = { game = RewardGame.Hub },
+                onBack = { sessionPlaying = false; game = RewardGame.Hub },
                 tryStart = ::tryStartRound,
+                onPlayingChanged = ::onPlayingChanged,
             )
         }
     }
@@ -126,8 +174,8 @@ fun RewardGamesScreen(onBack: () -> Unit) {
 @Composable
 private fun RemainingHint(remaining: Int) {
     Text(
-        if (remaining > 0) "今日还可玩 $remaining / ${RewardQuota.MAX_PLAYS} 局"
-        else "今日奖励局数已用完，明天再来",
+        if (remaining > 0) "今日还可玩 ${RewardQuota.formatSeconds(remaining)}"
+        else "今日游戏时间已用完，明天再来",
         fontSize = 13.sp,
         color = if (remaining > 0) InkSoft else Cinnabar,
         textAlign = TextAlign.Center,
@@ -154,6 +202,7 @@ private fun RewardTopBar(title: String, onBack: () -> Unit) {
 private fun RewardHub(
     onBack: () -> Unit,
     remaining: Int,
+    limitMinutes: Int,
     onPick: (RewardGame) -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
@@ -165,7 +214,7 @@ private fun RewardHub(
                 .padding(horizontal = 16.dp),
         ) {
             Text(
-                "今天的学习任务完成了，选一款小游戏放松一下。每天最多 ${RewardQuota.MAX_PLAYS} 局。",
+                "今天的学习任务完成了，选一款小游戏放松一下。每天最多玩 ${limitMinutes} 分钟。",
                 fontSize = 14.sp,
                 color = InkSoft,
             )
@@ -217,7 +266,7 @@ private fun GameCard(
         Text(blurb, fontSize = 13.sp, color = InkSoft)
         Spacer(Modifier.height(10.dp))
         Text(
-            if (enabled) "开始玩 →" else "今日局数已用完",
+            if (enabled) "开始玩 →" else "今日时间已用完",
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
             color = if (enabled) Pine else InkSoft,
@@ -251,6 +300,7 @@ private fun MemoryGame(
     remaining: Int,
     onBack: () -> Unit,
     tryStart: () -> Boolean,
+    onPlayingChanged: (Boolean) -> Unit,
 ) {
     fun freshDeck(): List<MemoryTile> {
         val faces = (MEMORY_FACES + MEMORY_FACES).shuffled()
@@ -272,6 +322,14 @@ private fun MemoryGame(
         won = false
         locked = false
         playing = true
+        onPlayingChanged(true)
+    }
+
+    LaunchedEffect(remaining) {
+        if (remaining <= 0 && playing) {
+            playing = false
+            onPlayingChanged(false)
+        }
     }
 
     LaunchedEffect(open) {
@@ -285,7 +343,11 @@ private fun MemoryGame(
             tiles = tiles.map {
                 if (it.id == a.id || it.id == b.id) it.copy(matched = true) else it
             }
-            if (tiles.all { it.matched }) won = true
+            if (tiles.all { it.matched }) {
+                won = true
+                playing = false
+                onPlayingChanged(false)
+            }
         }
         open = emptyList()
         locked = false
@@ -297,7 +359,7 @@ private fun MemoryGame(
         Spacer(Modifier.height(6.dp))
         Text(
             when {
-                !playing -> "点开始消耗 1 局"
+                !playing -> "点开始"
                 won -> "全部配对！用了 $moves 步"
                 else -> "步数 $moves · 点开两张相同的牌"
             },
@@ -371,7 +433,7 @@ private fun MemoryGame(
                                 onClick = { beginRound() },
                             )
                         } else {
-                            Text("今日局数已用完", fontSize = 14.sp, color = Cinnabar)
+                            Text("今日时间已用完", fontSize = 14.sp, color = Cinnabar)
                         }
                     }
                 }
@@ -389,6 +451,7 @@ private fun StarsGame(
     remaining: Int,
     onBack: () -> Unit,
     tryStart: () -> Boolean,
+    onPlayingChanged: (Boolean) -> Unit,
 ) {
     var score by remember { mutableIntStateOf(0) }
     var left by remember { mutableIntStateOf(15) }
@@ -414,6 +477,15 @@ private fun StarsGame(
         if (playing && left <= 0) {
             playing = false
             finished = true
+            onPlayingChanged(false)
+        }
+    }
+
+    LaunchedEffect(remaining) {
+        if (remaining <= 0 && playing) {
+            playing = false
+            finished = true
+            onPlayingChanged(false)
         }
     }
 
@@ -438,7 +510,7 @@ private fun StarsGame(
                 when {
                     finished -> "时间到"
                     playing -> "剩余 ${left}s"
-                    else -> "点开始消耗 1 局"
+                    else -> "点开始"
                 },
                 fontSize = 14.sp,
                 color = InkSoft,
@@ -494,10 +566,11 @@ private fun StarsGame(
                                 finished = false
                                 spawn()
                                 playing = true
+                                onPlayingChanged(true)
                             },
                         )
                     } else {
-                        Text("今日局数已用完", fontSize = 14.sp, color = Cinnabar)
+                        Text("今日时间已用完", fontSize = 14.sp, color = Cinnabar)
                     }
                 }
             }
@@ -516,6 +589,7 @@ private fun ReflexGame(
     remaining: Int,
     onBack: () -> Unit,
     tryStart: () -> Boolean,
+    onPlayingChanged: (Boolean) -> Unit,
 ) {
     var phase by remember { mutableStateOf(ReflexPhase.Idle) }
     var goAt by remember { mutableLongStateOf(0L) }
@@ -533,6 +607,13 @@ private fun ReflexGame(
         }
     }
 
+    LaunchedEffect(remaining) {
+        if (remaining <= 0 && (phase == ReflexPhase.Wait || phase == ReflexPhase.Go)) {
+            phase = ReflexPhase.Idle
+            onPlayingChanged(false)
+        }
+    }
+
     val bg = when (phase) {
         ReflexPhase.Go -> Pine
         ReflexPhase.Early -> Cinnabar
@@ -543,8 +624,8 @@ private fun ReflexGame(
         else -> Ink
     }
     val hint = when (phase) {
-        ReflexPhase.Idle -> if (remaining > 0) "点屏幕开始（消耗 1 局）。\n变绿之前不要点。"
-        else "今日局数已用完"
+        ReflexPhase.Idle -> if (remaining > 0) "点屏幕开始。\n变绿之前不要点。"
+        else "今日时间已用完"
         ReflexPhase.Wait -> "等一等…\n变绿再点"
         ReflexPhase.Go -> "点！"
         ReflexPhase.Early -> "太早了"
@@ -579,13 +660,18 @@ private fun ReflexGame(
                             if (remaining <= 0 || !tryStart()) return@clickable
                             waitToken += 1
                             phase = ReflexPhase.Wait
+                            onPlayingChanged(true)
                         }
-                        ReflexPhase.Wait -> phase = ReflexPhase.Early
+                        ReflexPhase.Wait -> {
+                            phase = ReflexPhase.Early
+                            onPlayingChanged(false)
+                        }
                         ReflexPhase.Go -> {
                             val elapsed = max(1, (System.currentTimeMillis() - goAt).toInt())
                             ms = elapsed
                             if (elapsed < best) best = elapsed
                             phase = ReflexPhase.Result
+                            onPlayingChanged(false)
                         }
                     }
                 },
@@ -602,7 +688,7 @@ private fun ReflexGame(
                 if (phase == ReflexPhase.Result || phase == ReflexPhase.Early) {
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        if (remaining > 0) "再点一次重来（再消耗 1 局）" else "今日局数已用完",
+                        if (remaining > 0) "再点一次重来" else "今日时间已用完",
                         fontSize = 13.sp,
                         color = fg.copy(alpha = 0.85f),
                     )
@@ -627,6 +713,7 @@ private fun SnakeGame(
     remaining: Int,
     onBack: () -> Unit,
     tryStart: () -> Boolean,
+    onPlayingChanged: (Boolean) -> Unit,
 ) {
     var snake by remember {
         mutableStateOf(listOf(Cell(5, 8), Cell(4, 8), Cell(3, 8)))
@@ -655,6 +742,15 @@ private fun SnakeGame(
         score = 0
         over = false
         playing = true
+        onPlayingChanged(true)
+    }
+
+    LaunchedEffect(remaining) {
+        if (remaining <= 0 && playing) {
+            playing = false
+            over = true
+            onPlayingChanged(false)
+        }
     }
 
     fun turn(next: Dir) {
@@ -693,6 +789,7 @@ private fun SnakeGame(
             if (nx !in 0 until SNAKE_W || ny !in 0 until SNAKE_H || newHead in bodyToCheck) {
                 over = true
                 playing = false
+                onPlayingChanged(false)
                 break
             }
             snake = if (grow) {
@@ -714,7 +811,7 @@ private fun SnakeGame(
             when {
                 over -> "撞到了！得分 $score"
                 playing -> "得分 $score · 滑动或按方向键"
-                else -> "点开始消耗 1 局"
+                else -> "点开始"
             },
             modifier = Modifier
                 .fillMaxWidth()
@@ -783,7 +880,7 @@ private fun SnakeGame(
                             onClick = { reset() },
                         )
                     } else {
-                        Text("今日局数已用完", fontSize = 14.sp, color = Cinnabar)
+                        Text("今日时间已用完", fontSize = 14.sp, color = Cinnabar)
                     }
                 }
             }
@@ -828,6 +925,7 @@ private fun TankGame(
     remaining: Int,
     onBack: () -> Unit,
     tryStart: () -> Boolean,
+    onPlayingChanged: (Boolean) -> Unit,
 ) {
     var playerX by remember { mutableFloatStateOf(0.5f) }
     var bullets by remember { mutableStateOf<List<Bullet>>(emptyList()) }
@@ -854,6 +952,15 @@ private fun TankGame(
         tick = 0
         lastShotAt = 0L
         playing = true
+        onPlayingChanged(true)
+    }
+
+    LaunchedEffect(remaining) {
+        if (remaining <= 0 && playing) {
+            playing = false
+            over = true
+            onPlayingChanged(false)
+        }
     }
 
     fun fire() {
@@ -950,6 +1057,7 @@ private fun TankGame(
                 if (lives <= 0) {
                     over = true
                     playing = false
+                    onPlayingChanged(false)
                 }
             }
         }
@@ -963,7 +1071,7 @@ private fun TankGame(
             when {
                 over -> "战斗结束，得分 $score"
                 playing -> "得分 $score · 生命 ${"♥".repeat(lives.coerceAtLeast(0))}"
-                else -> "点开始消耗 1 局 · 左右移动，中间开火"
+                else -> "点开始 · 左右移动，中间开火"
             },
             modifier = Modifier
                 .fillMaxWidth()
@@ -1051,7 +1159,7 @@ private fun TankGame(
                             onClick = { reset() },
                         )
                     } else {
-                        Text("今日局数已用完", fontSize = 14.sp, color = Cinnabar)
+                        Text("今日时间已用完", fontSize = 14.sp, color = Cinnabar)
                     }
                 }
             }

@@ -42,6 +42,7 @@ data class User(
     val knowSpell: Boolean,
     val knowPos: Boolean,
     val knowPhonetic: Boolean,
+    val rewardMinutes: Int,
 ) {
     val isAdmin get() = role == "admin"
     val isParent get() = role == "parent"
@@ -54,7 +55,7 @@ data class User(
 
     /** 家长修改学习设置后，用于触发孩子端重新拉取数据。 */
     val settingsKey: String
-        get() = "$dailyWords:$dailyReview:$knowSpeak:$knowSpell:$knowPos:$knowPhonetic"
+        get() = "$dailyWords:$dailyReview:$knowSpeak:$knowSpell:$knowPos:$knowPhonetic:$rewardMinutes"
 
     companion object {
         fun from(o: JSONObject) = User(
@@ -68,6 +69,7 @@ data class User(
             knowSpell = o.optInt("know_spell", 1) == 1,
             knowPos = o.optInt("know_pos", 1) == 1,
             knowPhonetic = o.optInt("know_phonetic", 1) == 1,
+            rewardMinutes = o.optInt("reward_minutes", 30).coerceIn(0, 180),
         )
     }
 }

@@ -56,6 +56,9 @@ DEFAULT_DAILY_WORDS = 8
 DEFAULT_DAILY_REVIEW = 8
 MIN_DAILY_WORDS = 0
 MAX_DAILY_WORDS = 50
+DEFAULT_REWARD_MINUTES = 30
+MIN_REWARD_MINUTES = 0
+MAX_REWARD_MINUTES = 180
 KIND_NEW = "new"
 KIND_REVIEW = "review"
 KIND_LABELS = {KIND_NEW: "新词学习", KIND_REVIEW: "复习"}
@@ -442,6 +445,26 @@ def daily_words_of(user) -> int:
 
 def daily_review_of(user) -> int:
     return _user_int(user, "daily_review", DEFAULT_DAILY_REVIEW)
+
+
+def clamp_reward_minutes(raw, default: int = DEFAULT_REWARD_MINUTES) -> int:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(MIN_REWARD_MINUTES, min(MAX_REWARD_MINUTES, value))
+
+
+def reward_minutes_of(user) -> int:
+    if not user:
+        return DEFAULT_REWARD_MINUTES
+    try:
+        raw = user["reward_minutes"]
+    except (KeyError, IndexError, TypeError):
+        return DEFAULT_REWARD_MINUTES
+    if raw is None:
+        return DEFAULT_REWARD_MINUTES
+    return clamp_reward_minutes(raw, DEFAULT_REWARD_MINUTES)
 
 
 def know_checks_of(user) -> dict:
@@ -856,7 +879,7 @@ def children_of(parent_id: int):
     return get_db().execute(
         """
         SELECT u.id, u.username, u.role, u.status, u.created_at, u.daily_words, u.daily_review,
-               u.know_speak, u.know_spell, u.know_pos, u.know_phonetic
+               u.know_speak, u.know_spell, u.know_pos, u.know_phonetic, u.reward_minutes
         FROM parent_children pc
         JOIN users u ON u.id = pc.child_id
         WHERE pc.parent_id = ?
@@ -1608,6 +1631,7 @@ def _public_user(user) -> dict:
         "know_spell": _user_int(user, "know_spell", 1),
         "know_pos": _user_int(user, "know_pos", 1),
         "know_phonetic": _user_int(user, "know_phonetic", 1),
+        "reward_minutes": reward_minutes_of(user),
         "created_at": user["created_at"],
     }
 
@@ -2051,10 +2075,14 @@ def api_child_settings(child_id: int):
     know_spell = 1 if data.get("know_spell") else 0
     know_pos = 1 if data.get("know_pos", True) else 0
     know_phonetic = 1 if data.get("know_phonetic", True) else 0
+    reward_minutes = clamp_reward_minutes(
+        data.get("reward_minutes"), DEFAULT_REWARD_MINUTES
+    )
     get_db().execute(
         """
         UPDATE users SET daily_words = ?, daily_review = ?,
-               know_speak = ?, know_spell = ?, know_pos = ?, know_phonetic = ?
+               know_speak = ?, know_spell = ?, know_pos = ?, know_phonetic = ?,
+               reward_minutes = ?
         WHERE id = ? AND role = ?
         """,
         (
@@ -2064,6 +2092,7 @@ def api_child_settings(child_id: int):
             know_spell,
             know_pos,
             know_phonetic,
+            reward_minutes,
             child_id,
             ROLE_USER,
         ),

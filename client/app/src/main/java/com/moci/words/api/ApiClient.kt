@@ -91,6 +91,7 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
         put("know_spell", if (u.knowSpell) 1 else 0)
         put("know_pos", if (u.knowPos) 1 else 0)
         put("know_phonetic", if (u.knowPhonetic) 1 else 0)
+        put("reward_minutes", u.rewardMinutes)
     }
 
     private fun cacheUserId(): Int = cachedUser?.id ?: 0
@@ -440,6 +441,7 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
         knowSpell: Boolean,
         knowPos: Boolean,
         knowPhonetic: Boolean,
+        rewardMinutes: Int,
     ): String {
         val json = execute("POST", "/api/v1/profile/child/$childId/settings", JSONObject().apply {
             put("daily_words", dailyWords)
@@ -448,6 +450,7 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
             put("know_spell", knowSpell)
             put("know_pos", knowPos)
             put("know_phonetic", knowPhonetic)
+            put("reward_minutes", rewardMinutes)
         })
         invalidateParentProfile()
         return json.optString("message", "已保存。")
