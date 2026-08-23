@@ -62,6 +62,18 @@ MAX_REWARD_MINUTES = 180
 KIND_NEW = "new"
 KIND_REVIEW = "review"
 KIND_LABELS = {KIND_NEW: "新词学习", KIND_REVIEW: "复习"}
+LEVEL_PRIMARY = "primary"
+LEVEL_JUNIOR = "junior"
+LEVEL_SENIOR = "senior"
+LEVEL_COLLEGE = "college"
+LEVEL_ALL = (LEVEL_PRIMARY, LEVEL_JUNIOR, LEVEL_SENIOR, LEVEL_COLLEGE)
+LEVEL_LABELS = {
+    LEVEL_PRIMARY: "小学",
+    LEVEL_JUNIOR: "初中",
+    LEVEL_SENIOR: "高中",
+    LEVEL_COLLEGE: "大学",
+}
+DEFAULT_WORD_LEVELS = ",".join(LEVEL_ALL)
 
 
 def _load_secret() -> str:
@@ -442,12 +454,14 @@ def due_cards(
     limit: int = 40,
     exclude_ids: list[int] | None = None,
     kind: str = KIND_NEW,
+    levels: list[str] | None = None,
 ) -> list[dict]:
     if limit <= 0:
         return []
     if kind == KIND_REVIEW:
         sql = """
             SELECT w.id, w.term, w.phonetic, w.pos, w.meaning, w.phrase, w.phrase_zh, w.example, w.example_zh, w.notes,
+                   COALESCE(w.level, 'primary') AS level,
                    COALESCE(p.status, 'new') AS status,
                    COALESCE(p.review_count, 0) AS review_count,
                    COALESCE(p.correct_streak, 0) AS correct_streak,
@@ -460,6 +474,7 @@ def due_cards(
     else:
         sql = """
             SELECT w.id, w.term, w.phonetic, w.pos, w.meaning, w.phrase, w.phrase_zh, w.example, w.example_zh, w.notes,
+                   COALESCE(w.level, 'primary') AS level,
                    COALESCE(p.status, 'new') AS status,
                    COALESCE(p.review_count, 0) AS review_count,
                    COALESCE(p.correct_streak, 0) AS correct_streak,
@@ -470,6 +485,10 @@ def due_cards(
               AND (p.next_review IS NULL OR p.next_review <= ?)
         """
         params = [user_id, now_iso()]
+        allowed = parse_word_levels(levels if levels is not None else LEVEL_ALL)
+        placeholders = ",".join("?" * len(allowed))
+        sql += f" AND COALESCE(w.level, 'primary') IN ({placeholders})"
+        params.extend(allowed)
     if exclude_ids:
         placeholders = ",".join("?" * len(exclude_ids))
         sql += f" AND w.id NOT IN ({placeholders})"
@@ -495,6 +514,7 @@ def count_due_cards(
     user_id: int,
     kind: str,
     exclude_ids: list[int] | None = None,
+    levels: list[str] | None = None,
 ) -> int:
     """词库里现在还能拿来学的张数（不含今日已学过的）。"""
     if kind == KIND_REVIEW:
@@ -514,11 +534,78 @@ def count_due_cards(
               AND (p.next_review IS NULL OR p.next_review <= ?)
         """
         params = [user_id, now_iso()]
+        allowed = parse_word_levels(levels if levels is not None else LEVEL_ALL)
+        placeholders = ",".join("?" * len(allowed))
+        sql += f" AND COALESCE(w.level, 'primary') IN ({placeholders})"
+        params.extend(allowed)
     if exclude_ids:
         placeholders = ",".join("?" * len(exclude_ids))
         sql += f" AND w.id NOT IN ({placeholders})"
         params.extend(exclude_ids)
     return get_db().execute(sql, params).fetchone()["n"] or 0
+
+
+def normalize_level(raw) -> str:
+    value = str(raw or "").strip().lower()
+    if value in LEVEL_ALL:
+        return value
+    if value in ("小学", "primary"):
+        return LEVEL_PRIMARY
+    if value in ("初中", "junior"):
+        return LEVEL_JUNIOR
+    if value in ("高中", "senior"):
+        return LEVEL_SENIOR
+    if value in ("大学", "college", "四六级", "四级", "六级"):
+        return LEVEL_COLLEGE
+    return LEVEL_PRIMARY
+
+
+def level_from_notes(notes: str) -> str:
+    text = notes or ""
+    if text.startswith("初中"):
+        return LEVEL_JUNIOR
+    if text.startswith("高中"):
+        return LEVEL_SENIOR
+    if text.startswith("大学"):
+        return LEVEL_COLLEGE
+    return LEVEL_PRIMARY
+
+
+def parse_word_levels(raw) -> list[str]:
+    """解析用户学习学段；至少返回一级，顺序固定为小学→初中→高中→大学。"""
+    if isinstance(raw, (list, tuple, set)):
+        parts = [str(x).strip() for x in raw]
+    else:
+        text = str(raw or "").strip()
+        if not text:
+            parts = list(LEVEL_ALL)
+        else:
+            parts = re.split(r"[,，\s]+", text)
+    chosen = set()
+    for p in parts:
+        lv = normalize_level(p)
+        if lv in LEVEL_ALL:
+            chosen.add(lv)
+    levels = [lv for lv in LEVEL_ALL if lv in chosen]
+    return levels or [LEVEL_PRIMARY]
+
+
+def encode_word_levels(levels: list[str]) -> str:
+    return ",".join(parse_word_levels(levels))
+
+
+def levels_of(user) -> list[str]:
+    if not user:
+        return list(LEVEL_ALL)
+    try:
+        raw = user["word_levels"]
+    except (KeyError, IndexError, TypeError):
+        return list(LEVEL_ALL)
+    return parse_word_levels(raw)
+
+
+def level_label(level: str) -> str:
+    return LEVEL_LABELS.get(normalize_level(level), LEVEL_LABELS[LEVEL_PRIMARY])
 
 
 def clamp_daily_words(raw, default: int = DEFAULT_DAILY_WORDS) -> int:
@@ -632,17 +719,19 @@ def _part(quota: int, done: int) -> dict:
 def today_task(user_id: int, user=None) -> dict:
     if user is None:
         user = get_db().execute(
-            "SELECT daily_words, daily_review FROM users WHERE id = ?", (user_id,)
+            "SELECT daily_words, daily_review, word_levels FROM users WHERE id = ?",
+            (user_id,),
         ).fetchone()
     new_q = daily_words_of(user)
     review_q = daily_review_of(user)
+    levels = levels_of(user)
     new_done_ids = today_reviewed_word_ids(user_id, KIND_NEW)
     review_done_ids = today_reviewed_word_ids(user_id, KIND_REVIEW)
     new_done = len(new_done_ids)
     review_done = len(review_done_ids)
     # 与发卡片时相同：今日已学过的词都排除。没有下一张可学的卡时 remaining 为 0。
     done_ids = today_reviewed_word_ids(user_id)
-    new_left = count_due_cards(user_id, KIND_NEW, done_ids)
+    new_left = count_due_cards(user_id, KIND_NEW, done_ids, levels=levels)
     review_left = count_due_cards(user_id, KIND_REVIEW, done_ids)
     new_q = min(new_q, new_done + new_left)
     review_q = min(review_q, review_done + review_left)
@@ -918,7 +1007,7 @@ def collect_day_words(
     return logs
 
 
-def list_words(user_id: int, q: str = "", status: str = ""):
+def list_words(user_id: int, q: str = "", status: str = "", level: str = ""):
     sql = """
         SELECT w.*, COALESCE(p.status, 'new') AS status,
                p.next_review, p.last_reviewed
@@ -934,17 +1023,23 @@ def list_words(user_id: int, q: str = "", status: str = ""):
     if status in {"new", "learning", "mastered"}:
         sql += " AND COALESCE(p.status, 'new') = ?"
         params.append(status)
+    if level in LEVEL_ALL:
+        sql += " AND COALESCE(w.level, 'primary') = ?"
+        params.append(level)
     sql += " ORDER BY w.updated_at DESC"
     return get_db().execute(sql, params).fetchall()
 
 
-def list_library(q: str = ""):
+def list_library(q: str = "", level: str = ""):
     sql = "SELECT * FROM words WHERE 1 = 1"
     params: list = []
     if q:
         sql += " AND (term LIKE ? OR meaning LIKE ? OR phonetic LIKE ? OR COALESCE(phrase,'') LIKE ? OR example LIKE ?)"
         like = f"%{q}%"
         params.extend([like, like, like, like, like])
+    if level in LEVEL_ALL:
+        sql += " AND COALESCE(level, 'primary') = ?"
+        params.append(level)
     sql += " ORDER BY updated_at DESC"
     return get_db().execute(sql, params).fetchall()
 
@@ -1219,10 +1314,19 @@ def logout():
 @admin_required
 def words():
     q = (request.args.get("q") or "").strip()
-    items = list_library(q=q)
+    raw_level = (request.args.get("level") or "").strip().lower()
+    level = raw_level if raw_level in LEVEL_ALL else ""
+    items = list_library(q=q, level=level)
     total = get_db().execute("SELECT COUNT(*) AS n FROM words").fetchone()["n"]
     return render_template(
-        "words.html", words=items, q=q, status="", stats={"total": total}
+        "words.html",
+        words=items,
+        q=q,
+        level=level,
+        levels=LEVEL_ALL,
+        level_labels=LEVEL_LABELS,
+        status="",
+        stats={"total": total},
     )
 
 
@@ -1237,7 +1341,13 @@ def word_new():
         data = _parse_word_form()
         if data.get("error"):
             flash(data["error"], "error")
-            return render_template("word_form.html", word=data, mode="new")
+            return render_template(
+                "word_form.html",
+                word=data,
+                mode="new",
+                levels=LEVEL_ALL,
+                level_labels=LEVEL_LABELS,
+            )
         dup = (
             get_db()
             .execute(
@@ -1248,13 +1358,20 @@ def word_new():
         )
         if dup:
             flash("词库里已有这个单词。", "error")
-            return render_template("word_form.html", word=data, mode="new")
+            return render_template(
+                "word_form.html",
+                word=data,
+                mode="new",
+                levels=LEVEL_ALL,
+                level_labels=LEVEL_LABELS,
+            )
         ts = now_iso()
         get_db().execute(
             """
             INSERT INTO words (
-                term, phonetic, pos, meaning, phrase, phrase_zh, example, example_zh, notes, created_by, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                term, phonetic, pos, meaning, phrase, phrase_zh, example, example_zh,
+                notes, level, created_by, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data["term"],
@@ -1266,6 +1383,7 @@ def word_new():
                 data["example"],
                 data["example_zh"],
                 data["notes"],
+                data["level"],
                 user["id"],
                 ts,
                 ts,
@@ -1277,7 +1395,13 @@ def word_new():
         if request.form.get("again") == "1":
             return redirect(url_for("word_new"))
         return redirect(url_for("words"))
-    return render_template("word_form.html", word=None, mode="new")
+    return render_template(
+        "word_form.html",
+        word=None,
+        mode="new",
+        levels=LEVEL_ALL,
+        level_labels=LEVEL_LABELS,
+    )
 
 
 @app.route("/words/<int:word_id>")
@@ -1287,7 +1411,11 @@ def word_detail(word_id: int):
     if not word:
         flash("找不到这个单词。", "error")
         return redirect(url_for("words"))
-    return render_template("word_detail.html", word=word)
+    return render_template(
+        "word_detail.html",
+        word=word,
+        level_label=level_label(word["level"] if "level" in word.keys() else "primary"),
+    )
 
 
 @app.route("/words/<int:word_id>/edit", methods=["GET", "POST"])
@@ -1305,7 +1433,11 @@ def word_edit(word_id: int):
         if data.get("error"):
             flash(data["error"], "error")
             return render_template(
-                "word_form.html", word=data | {"id": word_id}, mode="edit"
+                "word_form.html",
+                word=data | {"id": word_id},
+                mode="edit",
+                levels=LEVEL_ALL,
+                level_labels=LEVEL_LABELS,
             )
         dup = (
             get_db()
@@ -1318,11 +1450,16 @@ def word_edit(word_id: int):
         if dup:
             flash("词库里已有这个单词。", "error")
             return render_template(
-                "word_form.html", word=data | {"id": word_id}, mode="edit"
+                "word_form.html",
+                word=data | {"id": word_id},
+                mode="edit",
+                levels=LEVEL_ALL,
+                level_labels=LEVEL_LABELS,
             )
         get_db().execute(
             """
-            UPDATE words SET term=?, phonetic=?, pos=?, meaning=?, phrase=?, phrase_zh=?, example=?, example_zh=?, notes=?, updated_at=?
+            UPDATE words SET term=?, phonetic=?, pos=?, meaning=?, phrase=?, phrase_zh=?,
+                   example=?, example_zh=?, notes=?, level=?, updated_at=?
             WHERE id=?
             """,
             (
@@ -1335,6 +1472,7 @@ def word_edit(word_id: int):
                 data["example"],
                 data["example_zh"],
                 data["notes"],
+                data["level"],
                 now_iso(),
                 word_id,
             ),
@@ -1343,7 +1481,13 @@ def word_edit(word_id: int):
         _notify_words_updated("updated", word_id)
         flash("已保存修改。", "ok")
         return redirect(url_for("word_detail", word_id=word_id))
-    return render_template("word_form.html", word=word, mode="edit")
+    return render_template(
+        "word_form.html",
+        word=word,
+        mode="edit",
+        levels=LEVEL_ALL,
+        level_labels=LEVEL_LABELS,
+    )
 
 
 @app.route("/words/<int:word_id>/delete", methods=["POST"])
@@ -1386,8 +1530,9 @@ def word_quick():
     get_db().execute(
         """
         INSERT INTO words (
-            term, phonetic, pos, meaning, phrase, phrase_zh, example, example_zh, notes, created_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            term, phonetic, pos, meaning, phrase, phrase_zh, example, example_zh,
+            notes, level, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             data["term"],
@@ -1399,6 +1544,7 @@ def word_quick():
             data["example"],
             data["example_zh"],
             data["notes"],
+            data.get("level") or LEVEL_PRIMARY,
             user["id"],
             ts,
             ts,
@@ -1609,6 +1755,7 @@ def _parse_word_form(require_meaning: bool = True) -> dict:
     example = (request.form.get("example") or "").strip()
     example_zh = (request.form.get("example_zh") or "").strip()
     notes = (request.form.get("notes") or "").strip()
+    level = normalize_level(request.form.get("level") or LEVEL_PRIMARY)
     data = {
         "term": term,
         "phonetic": phonetic,
@@ -1619,6 +1766,7 @@ def _parse_word_form(require_meaning: bool = True) -> dict:
         "example": example,
         "example_zh": example_zh,
         "notes": notes,
+        "level": level,
     }
     if not term:
         data["error"] = "请填写单词。"
@@ -1734,6 +1882,7 @@ def _public_user(user) -> dict:
         "know_pos": _user_int(user, "know_pos", 1),
         "know_phonetic": _user_int(user, "know_phonetic", 1),
         "reward_minutes": reward_minutes_of(user),
+        "word_levels": levels_of(user),
         "created_at": user["created_at"],
     }
 
@@ -1750,6 +1899,10 @@ def _word_payload(row) -> dict:
         "example": row["example"] or "",
         "example_zh": (row["example_zh"] or "") if "example_zh" in row.keys() else "",
         "notes": row["notes"] or "",
+        "level": normalize_level(row["level"]) if "level" in row.keys() else LEVEL_PRIMARY,
+        "level_label": level_label(
+            row["level"] if "level" in row.keys() else LEVEL_PRIMARY
+        ),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -1997,6 +2150,7 @@ def api_review_cards():
         limit=task["new"]["remaining"],
         exclude_ids=done_ids,
         kind=KIND_NEW,
+        levels=levels_of(user),
     )
     review_cards = due_cards(
         user["id"],
@@ -2147,7 +2301,9 @@ def api_my_words():
     if status not in {"", "new", "learning", "mastered"}:
         return api_error("无效的单词状态。")
     q = (request.args.get("q") or "").strip()
-    rows = list_words(user["id"], q=q, status=status)
+    raw_level = (request.args.get("level") or "").strip().lower()
+    level = raw_level if raw_level in LEVEL_ALL else ""
+    rows = list_words(user["id"], q=q, status=status, level=level)
     return jsonify(
         {
             "ok": True,
@@ -2155,6 +2311,7 @@ def api_my_words():
             "total": len(rows),
             "status": status,
             "q": q,
+            "level": level,
         }
     )
 
@@ -2180,11 +2337,20 @@ def api_child_settings(child_id: int):
     reward_minutes = clamp_reward_minutes(
         data.get("reward_minutes"), DEFAULT_REWARD_MINUTES
     )
+    child_row = get_db().execute(
+        "SELECT * FROM users WHERE id = ?", (child_id,)
+    ).fetchone()
+    if not child_row:
+        return api_error("找不到该学生。")
+    if "word_levels" in data:
+        word_levels = encode_word_levels(data.get("word_levels"))
+    else:
+        word_levels = encode_word_levels(levels_of(child_row))
     get_db().execute(
         """
         UPDATE users SET daily_words = ?, daily_review = ?,
                know_speak = ?, know_spell = ?, know_pos = ?, know_phonetic = ?,
-               reward_minutes = ?
+               reward_minutes = ?, word_levels = ?
         WHERE id = ? AND role = ?
         """,
         (
@@ -2195,6 +2361,7 @@ def api_child_settings(child_id: int):
             know_pos,
             know_phonetic,
             reward_minutes,
+            word_levels,
             child_id,
             ROLE_USER,
         ),
@@ -2271,10 +2438,18 @@ def api_switch():
 @api_required(roles={ROLE_ADMIN})
 def api_words():
     q = (request.args.get("q") or "").strip()
-    rows = list_library(q=q)
+    raw_level = (request.args.get("level") or "").strip().lower()
+    level = raw_level if raw_level in LEVEL_ALL else ""
+    rows = list_library(q=q, level=level)
     total = get_db().execute("SELECT COUNT(*) AS n FROM words").fetchone()["n"]
     return jsonify(
-        {"ok": True, "words": [_word_payload(r) for r in rows], "total": total, "q": q}
+        {
+            "ok": True,
+            "words": [_word_payload(r) for r in rows],
+            "total": total,
+            "q": q,
+            "level": level,
+        }
     )
 
 
@@ -2301,6 +2476,7 @@ def _parse_word_json(data: dict, require_meaning: bool = True) -> dict:
         "example": str(data.get("example") or "").strip(),
         "example_zh": str(data.get("example_zh") or "").strip(),
         "notes": str(data.get("notes") or "").strip(),
+        "level": normalize_level(data.get("level") or LEVEL_PRIMARY),
     }
     if not parsed["term"]:
         parsed["error"] = "请填写单词。"
@@ -2342,8 +2518,9 @@ def api_word_create():
     cur = db.execute(
         """
         INSERT INTO words (
-            term, phonetic, pos, meaning, phrase, phrase_zh, example, example_zh, notes, created_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            term, phonetic, pos, meaning, phrase, phrase_zh, example, example_zh,
+            notes, level, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
         """,
         (
@@ -2356,6 +2533,7 @@ def api_word_create():
             data["example"],
             data["example_zh"],
             data["notes"],
+            data["level"],
             current_user()["id"],
             ts,
             ts,
@@ -2404,7 +2582,7 @@ def api_word_update(word_id: int):
         return api_error("词库里已有这个单词。")
     db.execute(
         """
-        UPDATE words SET term=?, phonetic=?, pos=?, meaning=?, phrase=?, phrase_zh=?, example=?, example_zh=?, notes=?, updated_at=?
+        UPDATE words SET term=?, phonetic=?, pos=?, meaning=?, phrase=?, phrase_zh=?, example=?, example_zh=?, notes=?, level=?, updated_at=?
         WHERE id=?
         """,
         (
@@ -2417,6 +2595,7 @@ def api_word_update(word_id: int):
             data["example"],
             data["example_zh"],
             data["notes"],
+            data["level"],
             now_iso(),
             word_id,
         ),

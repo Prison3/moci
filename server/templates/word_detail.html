@@ -9,6 +9,7 @@
     {{ speak_btn(word.term, '朗读单词') }}
   </div>
   {% if word.phonetic %}<p class="phonetic">{{ word.phonetic }}</p>{% endif %}
+  {% if word.level %}<p class="muted">学段：{{ level_label }}</p>{% endif %}
   {% if word.pos %}
     <p class="pos-row">
       {% for tag in word.pos.replace(',', ' / ').replace('，', ' / ').replace('、', ' / ').split('/') %}

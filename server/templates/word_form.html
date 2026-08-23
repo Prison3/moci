@@ -32,6 +32,15 @@
       <textarea name="meaning" required maxlength="400" rows="3" placeholder="苹果；公司名">{{ word.meaning if word else '' }}</textarea>
     </label>
     <label>
+      <span>学段</span>
+      {% set cur_level = (word.level if word else 'primary') or 'primary' %}
+      <select name="level">
+        {% for lv in levels %}
+          <option value="{{ lv }}" {% if cur_level == lv %}selected{% endif %}>{{ level_labels[lv] }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
       <span>短语（可选）</span>
       <input type="text" name="phrase" maxlength="200" value="{{ word.phrase if word else '' }}" placeholder="eat an apple">
     </label>

@@ -525,6 +525,17 @@ a.cal-cell {
   min-width: 0;
 }
 
+.search-bar select {
+  flex: none;
+  min-width: 7.5rem;
+  border: 1px solid var(--line);
+  background: #fffdf8;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font: inherit;
+  color: var(--ink);
+}
+
 .filters {
   display: flex;
   gap: 8px;
@@ -566,7 +577,8 @@ label span {
 }
 
 input,
-textarea {
+textarea,
+select {
   width: 100%;
   border: 1px solid var(--line);
   background: #fffdf8;

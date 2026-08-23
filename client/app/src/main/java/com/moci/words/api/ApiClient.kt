@@ -92,6 +92,7 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
         put("know_pos", if (u.knowPos) 1 else 0)
         put("know_phonetic", if (u.knowPhonetic) 1 else 0)
         put("reward_minutes", u.rewardMinutes)
+        put("word_levels", JSONArray(u.wordLevels))
     }
 
     private fun cacheUserId(): Int = cachedUser?.id ?: 0
@@ -442,6 +443,7 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
         knowPos: Boolean,
         knowPhonetic: Boolean,
         rewardMinutes: Int,
+        wordLevels: List<String> = listOf("primary", "junior", "senior", "college"),
     ): String {
         val json = execute("POST", "/api/v1/profile/child/$childId/settings", JSONObject().apply {
             put("daily_words", dailyWords)
@@ -451,6 +453,7 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
             put("know_pos", knowPos)
             put("know_phonetic", knowPhonetic)
             put("reward_minutes", rewardMinutes)
+            put("word_levels", JSONArray(wordLevels))
         })
         invalidateParentProfile()
         return json.optString("message", "已保存。")
@@ -470,12 +473,23 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
     // ------------------------------------------------------------------
     // 词库（管理员）
 
-    suspend fun words(q: String = "", force: Boolean = false): Pair<List<Word>, Int> =
-        cachedGet("words:${q.trim()}", force, { json ->
+    suspend fun words(
+        q: String = "",
+        level: String = "",
+        force: Boolean = false,
+    ): Pair<List<Word>, Int> =
+        cachedGet("words:${q.trim()}:${level.trim()}", force, { json ->
             val arr = json.optJSONArray("words") ?: JSONArray()
             (0 until arr.length()).map { Word.from(arr.getJSONObject(it)) } to json.optInt("total")
         }) {
-            execute("GET", "/api/v1/words", query = mapOf("q" to q.ifBlank { null }))
+            execute(
+                "GET",
+                "/api/v1/words",
+                query = mapOf(
+                    "q" to q.ifBlank { null },
+                    "level" to level.ifBlank { null },
+                ),
+            )
         }
 
     /** 学生按进度查看自己的单词：status 为空即全部。 */
@@ -521,6 +535,7 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
         put("example", w.example)
         put("example_zh", w.exampleZh)
         put("notes", w.notes)
+        put("level", w.level)
     }
 
     // ------------------------------------------------------------------

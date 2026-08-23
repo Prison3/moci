@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""导入小学英语词汇（课标二级 + 上海牛津补充词），并补全短语与例句。"""
+"""导入小学 / 初中 / 高中 / 大学（四六级）词汇，并补全短语与例句。"""
 
 from __future__ import annotations
 
@@ -11,11 +11,40 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from data.college_words import COLLEGE_WORDS  # noqa: E402
 from data.primary_school_words import WORDS  # noqa: E402
+from data.shanghai_junior_words import JUNIOR_WORDS  # noqa: E402
 from data.shanghai_oxford_extra import EXTRA_WORDS  # noqa: E402
+from data.shanghai_senior_words import SENIOR_WORDS  # noqa: E402
 from data.word_usage import usage_for  # noqa: E402
 from db import connect, init_schema  # noqa: E402
 from scripts.fill_pos import infer_pos  # noqa: E402
+
+
+def level_from_notes(notes: str) -> str:
+    text = notes or ""
+    if text.startswith("初中"):
+        return "junior"
+    if text.startswith("高中"):
+        return "senior"
+    if text.startswith("大学"):
+        return "college"
+    return "primary"
+
+
+def sync_levels_from_notes(conn) -> None:
+    """按 notes 前缀统一学段（重复词以中小学备注为准）。"""
+    conn.execute("UPDATE words SET level = 'junior' WHERE notes LIKE '初中%'")
+    conn.execute("UPDATE words SET level = 'senior' WHERE notes LIKE '高中%'")
+    conn.execute("UPDATE words SET level = 'college' WHERE notes LIKE '大学%'")
+    conn.execute(
+        """
+        UPDATE words SET level = 'primary'
+        WHERE notes NOT LIKE '初中%'
+          AND notes NOT LIKE '高中%'
+          AND notes NOT LIKE '大学%'
+        """
+    )
 
 
 def now_iso() -> str:
@@ -23,11 +52,17 @@ def now_iso() -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="导入小学词汇并补全短语、例句")
+    parser = argparse.ArgumentParser(description="导入小学/初中/高中/大学词汇并补全短语、例句")
     parser.add_argument(
         "--refresh",
         action="store_true",
         help="覆盖已有短语和例句（用生成结果重新填写）",
+    )
+    parser.add_argument(
+        "--only",
+        choices=("primary", "junior", "senior", "college", "all"),
+        default="all",
+        help="只导入指定学段（默认全部）",
     )
     args = parser.parse_args()
     refresh = args.refresh
@@ -52,11 +87,21 @@ def main() -> None:
         )
     }
 
+    sources: list[tuple[str, str]] = []
+    if args.only in ("primary", "all"):
+        sources.extend(list(WORDS) + list(EXTRA_WORDS))
+    if args.only in ("junior", "all"):
+        sources.extend(list(JUNIOR_WORDS))
+    if args.only in ("senior", "all"):
+        sources.extend(list(SENIOR_WORDS))
+    if args.only in ("college", "all"):
+        sources.extend(list(COLLEGE_WORDS))
+
     ts = now_iso()
     inserted = 0
     skipped = 0
     filled = 0
-    for term, phonetic, meaning, notes in list(WORDS) + list(EXTRA_WORDS):
+    for term, phonetic, meaning, notes in sources:
         term = term.strip()
         meaning = meaning.strip()
         notes = notes.strip()
@@ -66,6 +111,7 @@ def main() -> None:
             continue
         phrase, phrase_zh, example, example_zh = usage_for(term, meaning, notes)
         pos = infer_pos(term, meaning, notes)
+        level = level_from_notes(notes)
         key = term.lower()
         if key in existing:
             skipped += 1
@@ -100,7 +146,7 @@ def main() -> None:
                     ),
                 )
                 filled += 1
-            if not (row.get("pos") or "").strip():
+            if not (row["pos"] or "").strip():
                 conn.execute(
                     "UPDATE words SET pos = ?, updated_at = ? WHERE id = ?",
                     (pos, ts, row["id"]),
@@ -110,8 +156,8 @@ def main() -> None:
             """
             INSERT INTO words (
                 term, phonetic, pos, meaning, phrase, phrase_zh, example, example_zh,
-                notes, created_by, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                notes, level, created_by, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id
             """,
             (
@@ -124,6 +170,7 @@ def main() -> None:
                 example,
                 example_zh,
                 notes,
+                level,
                 admin_id,
                 ts,
                 ts,
@@ -139,21 +186,30 @@ def main() -> None:
             "example": example,
             "example_zh": example_zh,
             "pos": pos,
+            "level": level,
         }
         inserted += 1
 
     extra = conn.execute(
         """
-        SELECT id, term, meaning, notes, phrase, phrase_zh, example, example_zh
+        SELECT id, term, meaning, notes, phrase, phrase_zh, example, example_zh, level
         FROM words
         WHERE COALESCE(phrase, '') = '' OR COALESCE(example, '') = ''
            OR COALESCE(phrase_zh, '') = '' OR COALESCE(example_zh, '') = ''
+           OR COALESCE(level, '') = ''
         """
     ).fetchall()
     for row in extra:
         phrase, phrase_zh, example, example_zh = usage_for(
             row["term"], row["meaning"] or "", row["notes"] or ""
         )
+        new_level = level_from_notes(row["notes"] or "")
+        if (row["level"] or "") != new_level:
+            conn.execute(
+                "UPDATE words SET level = ?, updated_at = ? WHERE id = ?",
+                (new_level, ts, row["id"]),
+            )
+            filled += 1
         new_phrase = (row["phrase"] or "").strip() or phrase
         new_example = (row["example"] or "").strip() or example
         new_phrase_zh = (row["phrase_zh"] or "").strip() or phrase_zh
@@ -181,6 +237,7 @@ def main() -> None:
             )
             filled += 1
 
+    sync_levels_from_notes(conn)
     conn.commit()
     total = conn.execute("SELECT COUNT(*) AS n FROM words").fetchone()["n"]
     empty = conn.execute(

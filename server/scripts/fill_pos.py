@@ -10,7 +10,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from nltk.corpus import wordnet as wn  # noqa: E402
+try:
+    from nltk.corpus import wordnet as wn  # noqa: E402
+except Exception:  # pragma: no cover - 可选依赖
+    wn = None  # type: ignore[assignment]
 
 from db import connect, init_schema  # noqa: E402
 
@@ -450,6 +453,8 @@ def from_meaning(meaning: str) -> set[str]:
 
 
 def from_wordnet(term: str) -> set[str]:
+    if wn is None:
+        return set()
     key = term.strip().lower().replace("’", "'")
     # 短语：取末词或整词查询
     candidates = [key]
@@ -462,7 +467,11 @@ def from_wordnet(term: str) -> set[str]:
 
     tags: set[str] = set()
     for cand in candidates:
-        for syn in wn.synsets(cand):
+        try:
+            synsets = wn.synsets(cand)
+        except LookupError:
+            return set()
+        for syn in synsets:
             mapped = WN_MAP.get(syn.pos())
             if mapped:
                 tags.add(mapped)

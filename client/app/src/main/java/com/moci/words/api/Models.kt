@@ -43,6 +43,7 @@ data class User(
     val knowPos: Boolean,
     val knowPhonetic: Boolean,
     val rewardMinutes: Int,
+    val wordLevels: List<String> = listOf("primary", "junior", "senior"),
 ) {
     val isAdmin get() = role == "admin"
     val isParent get() = role == "parent"
@@ -55,7 +56,7 @@ data class User(
 
     /** 家长修改学习设置后，用于触发孩子端重新拉取数据。 */
     val settingsKey: String
-        get() = "$dailyWords:$dailyReview:$knowSpeak:$knowSpell:$knowPos:$knowPhonetic:$rewardMinutes"
+        get() = "$dailyWords:$dailyReview:$knowSpeak:$knowSpell:$knowPos:$knowPhonetic:$rewardMinutes:${wordLevels.joinToString(",")}"
 
     companion object {
         fun from(o: JSONObject) = User(
@@ -70,6 +71,7 @@ data class User(
             knowPos = o.optInt("know_pos", 1) == 1,
             knowPhonetic = o.optInt("know_phonetic", 1) == 1,
             rewardMinutes = o.optInt("reward_minutes", 30).coerceIn(0, 180),
+            wordLevels = parseWordLevels(o.opt("word_levels")),
         )
     }
 }
@@ -85,10 +87,12 @@ data class Word(
     val example: String,
     val exampleZh: String = "",
     val notes: String,
+    val level: String = "primary",
     val status: String = "",
     val updatedAt: String = "",
 ) {
     val posTags: List<String> get() = parsePosTags(pos)
+    val levelLabel: String get() = levelLabelOf(level)
 
     companion object {
         fun from(o: JSONObject) = Word(
@@ -102,6 +106,7 @@ data class Word(
             example = o.optString("example"),
             exampleZh = o.optString("example_zh"),
             notes = o.optString("notes"),
+            level = normalizeLevel(o.optString("level", "primary")),
             status = o.optString("status"),
             updatedAt = o.optString("updated_at"),
         )
@@ -158,6 +163,34 @@ fun joinPosTags(tags: Collection<String>): String =
 val COMMON_POS_TAGS = listOf(
     "n.", "v.", "adj.", "adv.", "prep.", "conj.", "pron.", "art.", "num.", "interj.",
 )
+
+val WORD_LEVELS = listOf("primary", "junior", "senior", "college")
+
+fun normalizeLevel(raw: String?): String = when (raw?.trim()?.lowercase()) {
+    "junior", "初中" -> "junior"
+    "senior", "高中" -> "senior"
+    "college", "大学", "四六级", "四级", "六级" -> "college"
+    else -> "primary"
+}
+
+fun levelLabelOf(level: String): String = when (normalizeLevel(level)) {
+    "junior" -> "初中"
+    "senior" -> "高中"
+    "college" -> "大学"
+    else -> "小学"
+}
+
+fun parseWordLevels(raw: Any?): List<String> {
+    val parts = when (raw) {
+        is JSONArray -> (0 until raw.length()).map { raw.optString(it) }
+        is Collection<*> -> raw.map { it?.toString().orEmpty() }
+        is String -> raw.split(',', '，', ' ', '\t').map { it.trim() }
+        else -> WORD_LEVELS
+    }
+    val chosen = parts.map { normalizeLevel(it) }.toSet()
+    val ordered = WORD_LEVELS.filter { it in chosen }
+    return ordered.ifEmpty { listOf("primary") }
+}
 
 private val POS_ZH = mapOf(
     "n." to "名词",

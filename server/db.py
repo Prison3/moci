@@ -90,6 +90,7 @@ def _create_words_table(db: Database) -> None:
             example TEXT NOT NULL DEFAULT '',
             example_zh TEXT NOT NULL DEFAULT '',
             notes TEXT NOT NULL DEFAULT '',
+            level TEXT NOT NULL DEFAULT 'primary',
             created_by INTEGER,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
@@ -113,6 +114,7 @@ def _migrate_legacy_words(db: Database) -> None:
             example TEXT NOT NULL DEFAULT '',
             example_zh TEXT NOT NULL DEFAULT '',
             notes TEXT NOT NULL DEFAULT '',
+            level TEXT NOT NULL DEFAULT 'primary',
             created_by INTEGER,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -212,6 +214,12 @@ def init_schema(db: Database) -> None:
     _add_column(
         db, "users", "reward_minutes", "reward_minutes INTEGER NOT NULL DEFAULT 30"
     )
+    _add_column(
+        db,
+        "users",
+        "word_levels",
+        "word_levels TEXT NOT NULL DEFAULT 'primary,junior,senior'",
+    )
 
     if "words" not in _tables(db):
         _create_words_table(db)
@@ -292,6 +300,58 @@ def init_schema(db: Database) -> None:
     _add_column(db, "words", "phrase_zh", "phrase_zh TEXT NOT NULL DEFAULT ''")
     _add_column(db, "words", "example_zh", "example_zh TEXT NOT NULL DEFAULT ''")
     _add_column(db, "words", "pos", "pos TEXT NOT NULL DEFAULT ''")
+    if "level" not in _columns(db, "words"):
+        db.execute(
+            "ALTER TABLE words ADD COLUMN level TEXT NOT NULL DEFAULT 'primary'"
+        )
+        db.execute(
+            """
+            UPDATE words SET level = 'junior'
+            WHERE level = 'primary' AND notes LIKE '初中%'
+            """
+        )
+        db.execute(
+            """
+            UPDATE words SET level = 'senior'
+            WHERE level = 'primary' AND notes LIKE '高中%'
+            """
+        )
+        db.execute(
+            """
+            UPDATE words SET level = 'college'
+            WHERE level = 'primary' AND notes LIKE '大学%'
+            """
+        )
+    else:
+        # 兜底：若曾加列但未回填，按 notes 再刷一次空/默认值
+        db.execute(
+            """
+            UPDATE words SET level = 'junior'
+            WHERE (level IS NULL OR level = '' OR level = 'primary')
+              AND notes LIKE '初中%'
+            """
+        )
+        db.execute(
+            """
+            UPDATE words SET level = 'senior'
+            WHERE (level IS NULL OR level = '' OR level = 'primary')
+              AND notes LIKE '高中%'
+            """
+        )
+        db.execute(
+            """
+            UPDATE words SET level = 'college'
+            WHERE (level IS NULL OR level = '' OR level = 'primary')
+              AND notes LIKE '大学%'
+            """
+        )
+        db.execute(
+            """
+            UPDATE words SET level = 'primary'
+            WHERE level IS NULL OR level = ''
+            """
+        )
+    db.execute("CREATE INDEX IF NOT EXISTS idx_words_level ON words (level)")
 
     admin_n = db.execute(
         "SELECT COUNT(*) AS n FROM users WHERE role = ?", ("admin",)

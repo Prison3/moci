@@ -42,8 +42,10 @@ import androidx.compose.ui.unit.sp
 import com.moci.words.MociApp
 import com.moci.words.api.ApiException
 import com.moci.words.api.COMMON_POS_TAGS
+import com.moci.words.api.WORD_LEVELS
 import com.moci.words.api.Word
 import com.moci.words.api.joinPosTags
+import com.moci.words.api.levelLabelOf
 import com.moci.words.api.parsePosTags
 import kotlinx.coroutines.launch
 
@@ -62,17 +64,18 @@ fun WordsScreen(wordsKey: Long = 0L) {
 
     var view by remember { mutableStateOf<WordsView>(WordsView.List) }
     var query by remember { mutableStateOf("") }
+    var level by remember { mutableStateOf("") }
     var words by remember { mutableStateOf<List<Word>?>(null) }
     var total by remember { mutableStateOf(0) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    fun load(q: String = query) {
+    fun load(q: String = query, lv: String = level) {
         loading = true
         error = null
         scope.launch {
             try {
-                val (list, n) = app.api.words(q)
+                val (list, n) = app.api.words(q, lv)
                 words = list
                 total = n
             } catch (e: ApiException) {
@@ -118,7 +121,6 @@ fun WordsScreen(wordsKey: Long = 0L) {
         )
 
         WordsView.List -> Column(Modifier.fillMaxSize()) {
-            // 搜索 + 新增
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -133,13 +135,31 @@ fun WordsScreen(wordsKey: Long = 0L) {
                     )
                 }
                 Spacer(Modifier.width(8.dp))
-                IconButton(onClick = { load(query) }) {
+                IconButton(onClick = { load(query, level) }) {
                     Icon(MociIcons.Search, contentDescription = "搜索", tint = Pine)
                 }
                 IconButton(onClick = { view = WordsView.Form(null) }) {
                     Icon(MociIcons.Add, contentDescription = "录入单词", tint = Pine)
                 }
             }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                LevelChip("全部", level.isEmpty()) {
+                    level = ""
+                    load(query, "")
+                }
+                WORD_LEVELS.forEach { lv ->
+                    LevelChip(levelLabelOf(lv), level == lv) {
+                        level = lv
+                        load(query, lv)
+                    }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
 
             when {
                 loading && words == null -> LoadingBox()
@@ -173,6 +193,22 @@ fun WordsScreen(wordsKey: Long = 0L) {
 }
 
 @Composable
+private fun LevelChip(label: String, active: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Medium,
+        color = if (active) Pine else InkSoft,
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (active) Pine.copy(alpha = 0.14f) else Paper2)
+            .border(1.dp, if (active) Pine else Line, RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    )
+}
+
+@Composable
 private fun WordRow(w: Word, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -192,6 +228,16 @@ private fun WordRow(w: Word, onClick: () -> Unit) {
                     fontWeight = FontWeight.Bold,
                     color = Ink,
                     fontFamily = SerifFamily,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    w.levelLabel,
+                    fontSize = 11.sp,
+                    color = Pine,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Pine.copy(alpha = 0.12f))
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
                 )
                 if (w.pos.isNotEmpty()) {
                     Spacer(Modifier.width(8.dp))
@@ -251,6 +297,8 @@ private fun WordDetail(
             if (word.phonetic.isNotEmpty()) {
                 Text(word.phonetic, fontSize = 15.sp, color = InkSoft)
             }
+            Spacer(Modifier.height(6.dp))
+            Text("学段：${word.levelLabel}", fontSize = 13.sp, color = InkSoft)
             Spacer(Modifier.height(12.dp))
             Text(word.meaning, fontSize = 16.sp, color = Ink)
             if (word.phrase.isNotEmpty()) {
@@ -308,6 +356,7 @@ private fun WordForm(
     var example by remember { mutableStateOf(initial?.example ?: "") }
     var exampleZh by remember { mutableStateOf(initial?.exampleZh ?: "") }
     var notes by remember { mutableStateOf(initial?.notes ?: "") }
+    var level by remember { mutableStateOf(initial?.level ?: "primary") }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
 
@@ -367,6 +416,29 @@ private fun WordForm(
         Spacer(Modifier.height(10.dp))
         MociTextField(meaning, { meaning = it }, "释义（必填）", singleLine = false)
         Spacer(Modifier.height(10.dp))
+        Text("学段", fontSize = 13.sp, color = InkSoft)
+        Spacer(Modifier.height(8.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            WORD_LEVELS.forEach { lv ->
+                val on = level == lv
+                Text(
+                    levelLabelOf(lv),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (on) Pine else InkSoft,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (on) Pine.copy(alpha = 0.14f) else Paper2)
+                        .border(1.dp, if (on) Pine else Line, RoundedCornerShape(999.dp))
+                        .clickable { level = lv }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
         MociTextField(phrase, { phrase = it }, "短语（可选）")
         Spacer(Modifier.height(10.dp))
         MociTextField(phraseZh, { phraseZh = it }, "短语翻译（可选）")
@@ -399,6 +471,7 @@ private fun WordForm(
                 example = example,
                 exampleZh = exampleZh,
                 notes = notes,
+                level = level,
             )
             scope.launch {
                 try {

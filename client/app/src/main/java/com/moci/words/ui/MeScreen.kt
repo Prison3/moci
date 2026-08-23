@@ -33,6 +33,8 @@ import com.moci.words.MociApp
 import com.moci.words.api.ApiException
 import com.moci.words.api.ChildInfo
 import com.moci.words.api.User
+import com.moci.words.api.WORD_LEVELS
+import com.moci.words.api.levelLabelOf
 import kotlinx.coroutines.launch
 
 /** 我的：账号信息、家长任务设置、账号切换、退出登录。 */
@@ -264,6 +266,9 @@ private fun ChildSettingsCard(child: ChildInfo, onSaved: () -> Unit) {
     var rewardMinutes by remember(child.user.id, child.user.rewardMinutes) {
         mutableStateOf(child.user.rewardMinutes.toString())
     }
+    var wordLevels by remember(child.user.id, child.user.wordLevels) {
+        mutableStateOf(child.user.wordLevels.toSet())
+    }
     var saving by remember { mutableStateOf(false) }
 
     PanelCard {
@@ -320,6 +325,25 @@ private fun ChildSettingsCard(child: ChildInfo, onSaved: () -> Unit) {
             )
             Text("正确音标", fontSize = 14.sp, color = Ink)
         }
+        Spacer(Modifier.height(12.dp))
+        Text("学习学段（新词范围）", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Ink)
+        WORD_LEVELS.forEach { lv ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = lv in wordLevels,
+                    onCheckedChange = { checked ->
+                        wordLevels = if (checked) {
+                            wordLevels + lv
+                        } else {
+                            val next = wordLevels - lv
+                            if (next.isEmpty()) wordLevels else next
+                        }
+                    },
+                    colors = CheckboxDefaults.colors(checkedColor = Pine),
+                )
+                Text(levelLabelOf(lv), fontSize = 14.sp, color = Ink)
+            }
+        }
         Spacer(Modifier.height(6.dp))
         Text(
             "今日新词 ${child.task.new.done} / ${child.task.new.quota} · 复习 ${child.task.review.done} / ${child.task.review.quota}",
@@ -344,6 +368,7 @@ private fun ChildSettingsCard(child: ChildInfo, onSaved: () -> Unit) {
                         knowPos,
                         knowPhonetic,
                         (rewardMinutes.toIntOrNull() ?: 30).coerceIn(0, 180),
+                        WORD_LEVELS.filter { it in wordLevels },
                     )
                     context.toast(msg)
                     onSaved()

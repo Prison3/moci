@@ -4,6 +4,12 @@
 {% block content %}
 <form class="search-bar" method="get" action="{{ url_for('words') }}">
   <input type="search" name="q" value="{{ q }}" placeholder="搜索单词或释义" enterkeyhint="search">
+  <select name="level" aria-label="学段">
+    <option value="" {% if not level %}selected{% endif %}>全部学段</option>
+    {% for lv in levels %}
+      <option value="{{ lv }}" {% if level == lv %}selected{% endif %}>{{ level_labels[lv] }}</option>
+    {% endfor %}
+  </select>
   <button class="btn btn-ghost" type="submit">搜索</button>
 </form>
 
@@ -13,6 +19,11 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="text" name="term" required maxlength="80" placeholder="单词，如 apple" autocomplete="off">
     <input type="text" name="meaning" required maxlength="400" placeholder="释义，如 短暂的、偶然的">
+    <select name="level" aria-label="学段">
+      {% for lv in levels %}
+        <option value="{{ lv }}" {% if lv == 'primary' %}selected{% endif %}>{{ level_labels[lv] }}</option>
+      {% endfor %}
+    </select>
     <button class="btn btn-primary btn-block" type="submit">加入公共词库</button>
     <a class="link-more" href="{{ url_for('word_new') }}">填写音标、短语、例句等完整信息</a>
   </form>
@@ -25,6 +36,7 @@
         <a class="word-row" href="{{ url_for('word_detail', word_id=w.id) }}">
           <div>
             <strong class="term">{{ w.term }}</strong>
+            {% if w.level %}<span class="badge">{{ level_labels.get(w.level, w.level) }}</span>{% endif %}
             {% if w.phonetic %}<span class="phonetic">{{ w.phonetic }}</span>{% endif %}
             <p>{{ w.meaning }}</p>
           </div>
@@ -34,7 +46,7 @@
   </ul>
 {% else %}
   <div class="empty">
-    {% if q %}
+    {% if q or level %}
       <p>没有符合条件的单词。</p>
     {% else %}
       <p>还没有单词，先在上面录入一个。</p>
