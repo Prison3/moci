@@ -52,6 +52,7 @@ import com.moci.words.ui.MociTheme
 import com.moci.words.ui.Paper
 import com.moci.words.ui.Paper2
 import com.moci.words.ui.Pine
+import com.moci.words.ui.RankScreen
 import com.moci.words.ui.StudyScreen
 import com.moci.words.ui.UpdateDialog
 import com.moci.words.ui.UsersScreen
@@ -180,6 +181,7 @@ private fun tabsFor(user: User): List<TabSpec> = when {
     else -> listOf(
         TabSpec("home", "首页", MociIcons.Home),
         TabSpec("study", "学习", MociIcons.Study),
+        TabSpec("rank", "排行", MociIcons.Trophy),
         TabSpec("me", "我的", MociIcons.Person),
     )
 }
@@ -241,6 +243,7 @@ private fun MainScaffold(
                     wordsKey = wordsKey,
                     onExit = { currentTab = "home" },
                 )
+                "rank" -> RankScreen(user = user)
                 "me" -> MeScreen(
                     user = user,
                     onUserChanged = onUserChanged,

@@ -593,3 +593,94 @@ data class CardsData(
         }
     }
 }
+
+data class MasteryRankItem(
+    val rank: Int,
+    val userId: Int,
+    val username: String,
+    val mastered: Int,
+    val learning: Int,
+    val total: Int,
+    val pct: Double,
+) {
+    companion object {
+        fun from(o: JSONObject) = MasteryRankItem(
+            rank = o.optInt("rank"),
+            userId = o.optInt("user_id"),
+            username = o.optString("username"),
+            mastered = o.optInt("mastered"),
+            learning = o.optInt("learning"),
+            total = o.optInt("total"),
+            pct = o.optDouble("pct"),
+        )
+
+        fun listFrom(arr: JSONArray?): List<MasteryRankItem> {
+            if (arr == null) return emptyList()
+            return (0 until arr.length()).map { from(arr.getJSONObject(it)) }
+        }
+    }
+}
+
+data class MasteryRankData(
+    val totalWords: Int,
+    val items: List<MasteryRankItem>,
+    val me: MasteryRankItem?,
+) {
+    companion object {
+        fun from(o: JSONObject) = MasteryRankData(
+            totalWords = o.optInt("total_words"),
+            items = MasteryRankItem.listFrom(o.optJSONArray("items")),
+            me = o.optJSONObject("me")?.let { MasteryRankItem.from(it) },
+        )
+    }
+}
+
+data class GameRankItem(
+    val rank: Int,
+    val userId: Int,
+    val username: String,
+    val score: Int,
+    val scoreLabel: String,
+) {
+    companion object {
+        fun from(o: JSONObject) = GameRankItem(
+            rank = o.optInt("rank"),
+            userId = o.optInt("user_id"),
+            username = o.optString("username"),
+            score = o.optInt("score"),
+            scoreLabel = o.optString("score_label"),
+        )
+
+        fun listFrom(arr: JSONArray?): List<GameRankItem> {
+            if (arr == null) return emptyList()
+            return (0 until arr.length()).map { from(arr.getJSONObject(it)) }
+        }
+    }
+}
+
+data class GameRankData(
+    val game: String,
+    val gameLabel: String,
+    val lowerBetter: Boolean,
+    val items: List<GameRankItem>,
+    val me: GameRankItem?,
+) {
+    companion object {
+        fun from(o: JSONObject) = GameRankData(
+            game = o.optString("game"),
+            gameLabel = o.optString("game_label"),
+            lowerBetter = o.optBoolean("lower_better"),
+            items = GameRankItem.listFrom(o.optJSONArray("items")),
+            me = o.optJSONObject("me")?.let { GameRankItem.from(it) },
+        )
+    }
+}
+
+/** 排行榜可选游戏 */
+val RANK_GAMES = listOf(
+    "stars" to "点星星",
+    "memory" to "记忆翻牌",
+    "reflex" to "快反应",
+    "snake" to "贪吃蛇",
+    "tank" to "坦克大战",
+)

@@ -575,6 +575,25 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
         }
     }
 
+    suspend fun rankMastery(force: Boolean = false): MasteryRankData =
+        cachedGet("rank:mastery", force, MasteryRankData::from) {
+            execute("GET", "/api/v1/rank/mastery")
+        }
+
+    suspend fun rankGames(game: String, force: Boolean = false): GameRankData =
+        cachedGet("rank:games:$game", force, GameRankData::from) {
+            execute("GET", "/api/v1/rank/games", query = mapOf("game" to game))
+        }
+
+    suspend fun submitGameScore(game: String, score: Int) {
+        execute("POST", "/api/v1/game-scores", JSONObject().apply {
+            put("game", game)
+            put("score", score)
+        })
+        val uid = cacheUserId()
+        if (uid != 0) cache.removePrefix(uid, "rank:games:")
+    }
+
     fun currentBaseUrl(): String = baseUrl
 
     fun currentBaseUrlDisplay(): String = stripScheme(baseUrl)

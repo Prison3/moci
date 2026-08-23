@@ -276,6 +276,15 @@ def init_schema(db: Database) -> None:
         CREATE INDEX IF NOT EXISTS idx_progress_due ON progress (user_id, next_review);
         CREATE INDEX IF NOT EXISTS idx_review_logs_day ON review_logs (user_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_daily_results_date ON daily_results (study_date);
+        CREATE TABLE IF NOT EXISTS game_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            game TEXT NOT NULL,
+            score INTEGER NOT NULL,
+            played_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_game_scores_game_user ON game_scores (game, user_id);
         """
     )
     _add_column(db, "review_logs", "kind", "kind TEXT NOT NULL DEFAULT 'new'")

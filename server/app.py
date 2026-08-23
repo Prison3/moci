@@ -257,6 +257,108 @@ def word_stats(user_id: int) -> dict:
     }
 
 
+VALID_GAMES = frozenset({"memory", "stars", "reflex", "snake", "tank"})
+LOWER_BETTER_GAMES = frozenset({"memory", "reflex"})
+GAME_LABELS = {
+    "memory": "记忆翻牌",
+    "stars": "点星星",
+    "reflex": "快反应",
+    "snake": "贪吃蛇",
+    "tank": "坦克大战",
+}
+
+
+def mastery_ranking(viewer_id: int | None = None) -> dict:
+    db = get_db()
+    total = db.execute("SELECT COUNT(*) AS n FROM words").fetchone()["n"] or 0
+    rows = db.execute(
+        """
+        SELECT
+            u.id AS user_id,
+            u.username,
+            COALESCE(SUM(CASE WHEN p.status = 'learning' THEN 1 ELSE 0 END), 0) AS learning,
+            COALESCE(SUM(CASE WHEN p.status = 'mastered' THEN 1 ELSE 0 END), 0) AS mastered
+        FROM users u
+        LEFT JOIN words w ON 1 = 1
+        LEFT JOIN progress p ON p.user_id = u.id AND p.word_id = w.id
+        WHERE u.role = ? AND u.status = ?
+        GROUP BY u.id, u.username
+        ORDER BY mastered DESC, learning DESC, u.username ASC
+        """,
+        (ROLE_USER, STATUS_APPROVED),
+    ).fetchall()
+    items: list[dict] = []
+    me: dict | None = None
+    for rank, row in enumerate(rows, start=1):
+        mastered = int(row["mastered"] or 0)
+        learning = int(row["learning"] or 0)
+        pct = round(mastered * 100.0 / total, 1) if total else 0.0
+        item = {
+            "rank": rank,
+            "user_id": row["user_id"],
+            "username": row["username"],
+            "mastered": mastered,
+            "learning": learning,
+            "total": total,
+            "pct": pct,
+        }
+        items.append(item)
+        if viewer_id and row["user_id"] == viewer_id:
+            me = dict(item)
+    return {"total_words": total, "items": items, "me": me}
+
+
+def game_ranking(game: str, viewer_id: int | None = None) -> dict:
+    db = get_db()
+    lower_better = game in LOWER_BETTER_GAMES
+    agg = "MIN" if lower_better else "MAX"
+    order = "ASC" if lower_better else "DESC"
+    rows = db.execute(
+        f"""
+        SELECT
+            u.id AS user_id,
+            u.username,
+            {agg}(gs.score) AS best_score
+        FROM users u
+        INNER JOIN game_scores gs ON gs.user_id = u.id AND gs.game = ?
+        WHERE u.role = ? AND u.status = ?
+        GROUP BY u.id, u.username
+        HAVING best_score IS NOT NULL
+        ORDER BY best_score {order}, u.username ASC
+        """,
+        (game, ROLE_USER, STATUS_APPROVED),
+    ).fetchall()
+    items: list[dict] = []
+    me: dict | None = None
+    for rank, row in enumerate(rows, start=1):
+        score = int(row["best_score"])
+        item = {
+            "rank": rank,
+            "user_id": row["user_id"],
+            "username": row["username"],
+            "score": score,
+            "score_label": format_game_score(game, score),
+        }
+        items.append(item)
+        if viewer_id and row["user_id"] == viewer_id:
+            me = dict(item)
+    return {
+        "game": game,
+        "game_label": GAME_LABELS.get(game, game),
+        "lower_better": lower_better,
+        "items": items,
+        "me": me,
+    }
+
+
+def format_game_score(game: str, score: int) -> str:
+    if game == "memory":
+        return f"{score} 步"
+    if game == "reflex":
+        return f"{score} ms"
+    return str(score)
+
+
 def normalize_spelling(text: str) -> str:
     value = (text or "").strip().lower()
     value = re.sub(r"\s+", " ", value)
@@ -2515,6 +2617,70 @@ def api_admin_learning():
             "by_user": [dict(r) for r in report["by_user"]],
             "detail_user": dict(report["detail_user"]) if report["detail_user"] else None,
             "logs": report["logs"],
+        }
+    )
+
+
+@app.get("/api/v1/rank/mastery")
+@api_required
+def api_rank_mastery():
+    user = current_user()
+    viewer_id = user["id"] if is_learner(user) else None
+    data = mastery_ranking(viewer_id)
+    return jsonify({"ok": True, **data})
+
+
+@app.get("/api/v1/rank/games")
+@api_required
+def api_rank_games():
+    game = (request.args.get("game") or "stars").strip()
+    if game not in VALID_GAMES:
+        return api_error("无效的游戏类型。", 400, "bad_request")
+    user = current_user()
+    viewer_id = user["id"] if is_learner(user) else None
+    data = game_ranking(game, viewer_id)
+    return jsonify({"ok": True, **data})
+
+
+@app.route("/api/v1/game-scores", methods=["POST"])
+@api_required
+def api_game_scores():
+    err = api_csrf()
+    if err:
+        return err
+    user = current_user()
+    if not is_learner(user):
+        return api_error("只有学生可以提交游戏成绩。", 403, "forbidden")
+    data = request.get_json(silent=True) or {}
+    game = (data.get("game") or "").strip()
+    if game not in VALID_GAMES:
+        return api_error("无效的游戏类型。", 400, "bad_request")
+    try:
+        score = int(data.get("score"))
+    except (TypeError, ValueError):
+        return api_error("成绩必须是整数。", 400, "bad_request")
+    if score < 0:
+        return api_error("成绩不能为负数。", 400, "bad_request")
+    if game == "reflex" and score < 1:
+        return api_error("反应时间无效。", 400, "bad_request")
+    if game == "memory" and score < 1:
+        return api_error("步数无效。", 400, "bad_request")
+    db = get_db()
+    db.execute(
+        """
+        INSERT INTO game_scores (user_id, game, score, played_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        (user["id"], game, score, now_iso()),
+    )
+    db.commit()
+    return jsonify(
+        {
+            "ok": True,
+            "message": "成绩已记录。",
+            "game": game,
+            "score": score,
+            "score_label": format_game_score(game, score),
         }
     )
 

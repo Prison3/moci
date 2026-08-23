@@ -35,6 +35,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import com.moci.words.MociApp
 import com.moci.words.RewardQuota
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.random.Random
@@ -68,6 +70,7 @@ private enum class RewardGame {
 fun RewardGamesScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val app = context.applicationContext as MociApp
+    val scope = rememberCoroutineScope()
     val userId = app.api.cachedUser?.id ?: 0
     val limitMinutes = app.api.cachedUser?.rewardMinutes ?: RewardQuota.DEFAULT_LIMIT_MINUTES
     var game by remember { mutableStateOf(RewardGame.Hub) }
@@ -77,6 +80,12 @@ fun RewardGamesScreen(onBack: () -> Unit) {
     var sessionPlaying by remember { mutableStateOf(false) }
     var appResumed by remember { mutableStateOf(true) }
     val remaining = (remainingMs / 1000L).toInt()
+
+    fun submitScore(gameId: String, score: Int) {
+        scope.launch {
+            runCatching { app.api.submitGameScore(gameId, score) }
+        }
+    }
 
     fun refreshRemaining() {
         remainingMs = RewardQuota.remainingMs(context, userId, limitMinutes)
@@ -142,30 +151,35 @@ fun RewardGamesScreen(onBack: () -> Unit) {
                 onBack = { sessionPlaying = false; game = RewardGame.Hub },
                 tryStart = ::tryStartRound,
                 onPlayingChanged = ::onPlayingChanged,
+                onScore = { submitScore("memory", it) },
             )
             RewardGame.Stars -> StarsGame(
                 remaining = remaining,
                 onBack = { sessionPlaying = false; game = RewardGame.Hub },
                 tryStart = ::tryStartRound,
                 onPlayingChanged = ::onPlayingChanged,
+                onScore = { submitScore("stars", it) },
             )
             RewardGame.Reflex -> ReflexGame(
                 remaining = remaining,
                 onBack = { sessionPlaying = false; game = RewardGame.Hub },
                 tryStart = ::tryStartRound,
                 onPlayingChanged = ::onPlayingChanged,
+                onScore = { submitScore("reflex", it) },
             )
             RewardGame.Snake -> SnakeGame(
                 remaining = remaining,
                 onBack = { sessionPlaying = false; game = RewardGame.Hub },
                 tryStart = ::tryStartRound,
                 onPlayingChanged = ::onPlayingChanged,
+                onScore = { submitScore("snake", it) },
             )
             RewardGame.Tank -> TankGame(
                 remaining = remaining,
                 onBack = { sessionPlaying = false; game = RewardGame.Hub },
                 tryStart = ::tryStartRound,
                 onPlayingChanged = ::onPlayingChanged,
+                onScore = { submitScore("tank", it) },
             )
         }
     }
@@ -301,6 +315,7 @@ private fun MemoryGame(
     onBack: () -> Unit,
     tryStart: () -> Boolean,
     onPlayingChanged: (Boolean) -> Unit,
+    onScore: (Int) -> Unit,
 ) {
     fun freshDeck(): List<MemoryTile> {
         val faces = (MEMORY_FACES + MEMORY_FACES).shuffled()
@@ -347,6 +362,7 @@ private fun MemoryGame(
                 won = true
                 playing = false
                 onPlayingChanged(false)
+                onScore(moves)
             }
         }
         open = emptyList()
@@ -452,6 +468,7 @@ private fun StarsGame(
     onBack: () -> Unit,
     tryStart: () -> Boolean,
     onPlayingChanged: (Boolean) -> Unit,
+    onScore: (Int) -> Unit,
 ) {
     var score by remember { mutableIntStateOf(0) }
     var left by remember { mutableIntStateOf(15) }
@@ -478,6 +495,7 @@ private fun StarsGame(
             playing = false
             finished = true
             onPlayingChanged(false)
+            onScore(score)
         }
     }
 
@@ -590,6 +608,7 @@ private fun ReflexGame(
     onBack: () -> Unit,
     tryStart: () -> Boolean,
     onPlayingChanged: (Boolean) -> Unit,
+    onScore: (Int) -> Unit,
 ) {
     var phase by remember { mutableStateOf(ReflexPhase.Idle) }
     var goAt by remember { mutableLongStateOf(0L) }
@@ -672,6 +691,7 @@ private fun ReflexGame(
                             if (elapsed < best) best = elapsed
                             phase = ReflexPhase.Result
                             onPlayingChanged(false)
+                            onScore(elapsed)
                         }
                     }
                 },
@@ -714,6 +734,7 @@ private fun SnakeGame(
     onBack: () -> Unit,
     tryStart: () -> Boolean,
     onPlayingChanged: (Boolean) -> Unit,
+    onScore: (Int) -> Unit,
 ) {
     var snake by remember {
         mutableStateOf(listOf(Cell(5, 8), Cell(4, 8), Cell(3, 8)))
@@ -790,6 +811,7 @@ private fun SnakeGame(
                 over = true
                 playing = false
                 onPlayingChanged(false)
+                onScore(score)
                 break
             }
             snake = if (grow) {
@@ -926,6 +948,7 @@ private fun TankGame(
     onBack: () -> Unit,
     tryStart: () -> Boolean,
     onPlayingChanged: (Boolean) -> Unit,
+    onScore: (Int) -> Unit,
 ) {
     var playerX by remember { mutableFloatStateOf(0.5f) }
     var bullets by remember { mutableStateOf<List<Bullet>>(emptyList()) }
@@ -1058,6 +1081,7 @@ private fun TankGame(
                     over = true
                     playing = false
                     onPlayingChanged(false)
+                    onScore(score)
                 }
             }
         }

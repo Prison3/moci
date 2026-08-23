@@ -34,6 +34,11 @@ object MociIcons {
         "M16 12a3 3 0 1 0-1-5.8 5.5 5.5 0 0 1 0 5.8ZM16 15c1.7.6 3 1.8 3 3.5V21h3v-1c0-2.2-2.6-3.6-6-4Z",
     )
     val Chart = icon("chart", "M5 19V9h3v10H5Zm6 0V5h3v14h-3Zm6 0v-6h3v6h-3Z")
+    val Trophy = icon(
+        "trophy",
+        "M7 4h2v1a3 3 0 0 0 6 0V4h2v3a5 5 0 0 1-4 4.9V14H17v2H7v-2h4v-2.1A5 5 0 0 1 7 7V4Zm2 0v3a3 3 0 0 0 6 0V4H9Z",
+        "M8 18h8v2H8v-2Z",
+    )
     val Person = icon("person", "M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4 0-8 2-8 5v1h16v-1c0-3-4-5-8-5Z")
     val Study = icon("study", "M4 7a4 4 0 0 1 4-4h5l7 7v9a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V7Zm8 3v2h5v2h-5v2l-3.5-3L12 10Z")
     val Speaker = icon(
