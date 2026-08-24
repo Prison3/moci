@@ -1856,19 +1856,23 @@ def app_version_meta() -> tuple[str, int]:
     return APP_VERSION_NAME, APP_VERSION_CODE
 
 
-def app_release_info() -> dict | None:
+def app_release_info(*, external_url: bool = True) -> dict | None:
     path = app_apk_path()
     if not path.is_file():
         return None
     stat = path.stat()
     version_name, version_code = app_version_meta()
+    if external_url:
+        download_url = url_for("download_apk", _external=True)
+    else:
+        download_url = url_for("download_apk")
     return {
         "version_name": version_name,
         "version_code": version_code,
         "filename": APP_APK_NAME,
         "size_bytes": stat.st_size,
         "updated_at": datetime.fromtimestamp(stat.st_mtime).replace(microsecond=0).isoformat(sep=" "),
-        "download_url": url_for("download_apk", _external=True),
+        "download_url": download_url,
     }
 
 
@@ -1893,7 +1897,7 @@ def download_apk():
 
 @app.get("/api/v1/app/info")
 def api_app_info():
-    info = app_release_info()
+    info = app_release_info(external_url=False)
     if not info:
         return api_error("Android 安装包尚未发布。", 404, "not_found")
     return jsonify({"ok": True, **info})

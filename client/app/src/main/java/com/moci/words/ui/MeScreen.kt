@@ -30,13 +30,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.moci.words.BuildConfig
 import com.moci.words.MociApp
 import com.moci.words.api.ApiException
+import com.moci.words.api.AppReleaseInfo
 import com.moci.words.api.ChildInfo
 import com.moci.words.api.User
 import com.moci.words.api.WORD_LEVELS
 import com.moci.words.api.levelLabelOf
+import com.moci.words.update.AppUpdater
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /** 我的：账号信息、家长任务设置、账号切换、退出登录。 */
 @Composable
@@ -227,6 +231,105 @@ fun MeScreen(
                 Spacer(Modifier.height(16.dp))
             }
         }
+
+        AppVersionSection()
+        Spacer(Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun AppVersionSection() {
+    val app = LocalContext.current.applicationContext as MociApp
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var releaseInfo by remember { mutableStateOf<AppReleaseInfo?>(null) }
+    var checking by remember { mutableStateOf(false) }
+    var updating by remember { mutableStateOf(false) }
+    var checkError by remember { mutableStateOf<String?>(null) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
+
+    val hasUpdate = releaseInfo?.let { it.versionCode > BuildConfig.VERSION_CODE } == true
+
+    fun checkUpdate() {
+        scope.launch {
+            checking = true
+            checkError = null
+            runCatching { app.api.appInfo() }
+                .onSuccess { releaseInfo = it }
+                .onFailure { e ->
+                    checkError = when (e) {
+                        is ApiException -> e.message ?: "检查失败"
+                        else -> e.message ?: "无法连接服务器"
+                    }
+                }
+            checking = false
+        }
+    }
+
+    LaunchedEffect(Unit) { checkUpdate() }
+
+    PanelCard {
+        PanelTitle("版本信息")
+        SettingsReadonlyRow("当前版本", "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+        when {
+            checking && releaseInfo == null -> SettingsReadonlyRow("最新版本", "检查中…")
+            checkError != null && releaseInfo == null -> SettingsReadonlyRow("最新版本", checkError!!)
+            releaseInfo != null -> {
+                val info = releaseInfo!!
+                SettingsReadonlyRow("最新版本", "v${info.versionName} (${info.versionCode})")
+                SettingsReadonlyRow("安装包大小", "${(info.sizeBytes / 1048576.0).roundToInt()} MB")
+                Text(
+                    if (hasUpdate) "发现新版本，建议更新。" else "当前已是最新版本。",
+                    fontSize = 13.sp,
+                    color = if (hasUpdate) Cinnabar else Pine,
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            MociButton(
+                if (checking) "检查中…" else "检查更新",
+                modifier = Modifier.weight(1f),
+                enabled = !checking && !updating,
+            ) { checkUpdate() }
+            if (hasUpdate) {
+                MociButton(
+                    if (updating) "下载中…" else "立即更新",
+                    modifier = Modifier.weight(1f),
+                    enabled = !checking && !updating,
+                ) { showUpdateDialog = true }
+            }
+        }
+    }
+
+    releaseInfo?.takeIf { hasUpdate && showUpdateDialog }?.let { info ->
+        UpdateDialog(
+            info = info,
+            busy = updating,
+            onDismiss = { if (!updating) showUpdateDialog = false },
+            onUpdate = {
+                if (!AppUpdater.canInstallPackages(context)) {
+                    context.toast("请先允许安装未知来源应用。")
+                    AppUpdater.openInstallPermissionSettings(context)
+                    return@UpdateDialog
+                }
+                updating = true
+                scope.launch {
+                    try {
+                        val apk = AppUpdater.downloadApk(context, info.downloadUrl)
+                        AppUpdater.installApk(context, apk)
+                        showUpdateDialog = false
+                    } catch (e: Exception) {
+                        context.toast(e.message ?: "更新失败，请稍后重试。")
+                    } finally {
+                        updating = false
+                    }
+                }
+            },
+        )
     }
 }
 

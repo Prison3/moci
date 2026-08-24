@@ -2,6 +2,7 @@ package com.moci.words.api
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.Uri
 import android.util.Log
 import com.moci.words.db.ApiCache
 import com.moci.words.db.MociDatabase
@@ -329,7 +330,45 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
 
     suspend fun appInfo(): AppReleaseInfo {
         val json = execute("GET", "/api/v1/app/info")
-        return AppReleaseInfo.from(json)
+        val info = AppReleaseInfo.from(json)
+        return info.copy(downloadUrl = resolveDownloadUrl(info.downloadUrl))
+    }
+
+    /** gRPC 转发时服务端可能返回 127.0.0.1 或相对路径，统一按当前服务器地址解析。 */
+    private fun resolveDownloadUrl(raw: String): String {
+        val path = when {
+            raw.isBlank() -> "/download/moci.apk"
+            raw.startsWith("/") -> raw
+            else -> {
+                val uri = Uri.parse(raw)
+                if (isLoopbackHost(uri.host)) {
+                    uri.path?.takeIf { it.isNotBlank() } ?: "/download/moci.apk"
+                } else {
+                    return raw
+                }
+            }
+        }
+        return downloadHttpBaseUrl().trimEnd('/') + path
+    }
+
+    private fun isLoopbackHost(host: String?): Boolean {
+        if (host.isNullOrBlank()) return true
+        return host.equals("localhost", ignoreCase = true) ||
+            host == "127.0.0.1" ||
+            host == "::1"
+    }
+
+    /** APK 走 Flask HTTP 端口（5000），与 gRPC 端口（50051）区分。 */
+    private fun downloadHttpBaseUrl(): String {
+        val uri = Uri.parse(baseUrl.trim())
+        val scheme = uri.scheme ?: "http"
+        val host = uri.host ?: "127.0.0.1"
+        val httpPort = when (val port = uri.port) {
+            -1 -> 5000
+            50051, 50052 -> 5000
+            else -> port
+        }
+        return "$scheme://$host:$httpPort"
     }
 
     // ------------------------------------------------------------------
