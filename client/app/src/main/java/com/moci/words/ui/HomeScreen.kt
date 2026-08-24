@@ -53,7 +53,7 @@ fun HomeScreen(
     when {
         user.isAdmin -> AdminHomeScreen(wordsKey, onNavigate)
         user.isParent -> ParentHomeScreen(wordsKey)
-        else -> LearnerHomeScreen(settingsKey, wordsKey, onStartStudy, onGameImmersiveChange)
+        else -> LearnerHomeScreen(user, settingsKey, wordsKey, onStartStudy, onGameImmersiveChange)
     }
 }
 
@@ -62,6 +62,7 @@ fun HomeScreen(
 
 @Composable
 private fun LearnerHomeScreen(
+    user: User,
     settingsKey: String,
     wordsKey: Long,
     onStartStudy: () -> Unit,
@@ -133,21 +134,29 @@ private fun LearnerHomeScreen(
 
                 // 今日任务
                 PanelCard {
-                    Text(
-                        "${data.user.username} · 学生",
-                        fontSize = 13.sp,
-                        color = InkSoft,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(
-                            if (data.task.remaining > 0) "今日待完成" else "今日任务完成",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Ink,
-                        )
-                        Spacer(Modifier.padding(horizontal = 4.dp))
-                        Text("${data.task.remaining}", style = MociType.heroNumber)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        UserAvatar(user.avatar, user.username, size = 44.dp)
+                        Column {
+                            Text(
+                                "${user.username} · 学生",
+                                fontSize = 13.sp,
+                                color = InkSoft,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text(
+                                    if (data.task.remaining > 0) "今日待完成" else "今日任务完成",
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Ink,
+                                )
+                                Spacer(Modifier.padding(horizontal = 4.dp))
+                                Text("${data.task.remaining}", style = MociType.heroNumber)
+                            }
+                        }
                     }
                     Text(
                         "新词 ${data.task.new.done} / ${data.task.new.quota} · 复习 ${data.task.review.done} / ${data.task.review.quota}",

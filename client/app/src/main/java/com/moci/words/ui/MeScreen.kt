@@ -1,5 +1,6 @@
 package com.moci.words.ui
 
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -71,14 +72,22 @@ fun MeScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Column {
-                    Text(user.username, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink)
-                    Spacer(Modifier.height(4.dp))
-                    MociBadge(user.roleLabel, Pine)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    UserAvatar(user.avatar, user.username, size = 52.dp)
+                    Column {
+                        Text(user.username, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink)
+                        Spacer(Modifier.height(4.dp))
+                        MociBadge(user.roleLabel, Pine)
+                    }
                 }
                 MociButton("退出登录", kind = BtnKind.Ghost) { onLogout() }
             }
         }
+
+        AvatarSettingsCard(user = user, onUserChanged = onUserChanged)
 
         when {
             state.loading && data == null -> LoadingBox()
@@ -119,6 +128,7 @@ fun MeScreen(
                             parents.forEach { p ->
                                 ParentSwitchRow(
                                     username = p.username,
+                                    avatar = p.avatar,
                                     onSwitch = { password ->
                                         scope.launch {
                                             try {
@@ -165,18 +175,24 @@ fun MeScreen(
                                             .weight(1f)
                                             .clickable { selectedChildId = child.user.id },
                                     ) {
-                                        Column(Modifier.fillMaxWidth()) {
-                                            Text(
-                                                child.user.username,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 15.sp,
-                                                color = if (sel) Pine else Ink,
-                                            )
-                                            Text(
-                                                "今日 ${child.task.done}/${child.task.quota}",
-                                                fontSize = 12.sp,
-                                                color = InkSoft,
-                                            )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            UserAvatar(child.user.avatar, child.user.username, size = 32.dp)
+                                            Column {
+                                                Text(
+                                                    child.user.username,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 15.sp,
+                                                    color = if (sel) Pine else Ink,
+                                                )
+                                                Text(
+                                                    "今日 ${child.task.done}/${child.task.quota}",
+                                                    fontSize = 12.sp,
+                                                    color = InkSoft,
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -238,6 +254,8 @@ fun MeScreen(
     }
 }
 
+private const val APP_UPDATE_TAG = "AppUpdate"
+
 @Composable
 private fun AppVersionSection() {
     val app = LocalContext.current.applicationContext as MociApp
@@ -257,8 +275,16 @@ private fun AppVersionSection() {
             checking = true
             checkError = null
             runCatching { app.api.appInfo() }
-                .onSuccess { releaseInfo = it }
+                .onSuccess { info ->
+                    releaseInfo = info
+                    val localApkPath = AppUpdater.apkCacheFile(context).absolutePath
+                    Log.i(
+                        APP_UPDATE_TAG,
+                        "检查更新：downloadUrl=${info.downloadUrl} localApkPath=$localApkPath",
+                    )
+                }
                 .onFailure { e ->
+                    Log.w(APP_UPDATE_TAG, "检查更新失败：${e.message}")
                     checkError = when (e) {
                         is ApiException -> e.message ?: "检查失败"
                         else -> e.message ?: "无法连接服务器"
@@ -348,6 +374,39 @@ private fun AppVersionSection() {
 }
 
 @Composable
+private fun AvatarSettingsCard(user: User, onUserChanged: (User) -> Unit) {
+    val app = LocalContext.current.applicationContext as MociApp
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var saving by remember { mutableStateOf(false) }
+
+    PanelCard {
+        PanelTitle("头像")
+        AvatarPicker(
+            current = user.avatar,
+            username = user.username,
+            saving = saving,
+            onPick = { emoji ->
+                if (emoji == user.avatar || saving) return@AvatarPicker
+                saving = true
+                scope.launch {
+                    try {
+                        val fresh = app.api.saveAvatar(emoji)
+                        onUserChanged(fresh)
+                        context.toast("头像已更新")
+                    } catch (e: ApiException) {
+                        context.toast(e.message ?: "保存失败")
+                    } catch (_: Exception) {
+                        context.toast("保存失败，请重试")
+                    }
+                    saving = false
+                }
+            },
+        )
+    }
+}
+
+@Composable
 private fun LearnerSettingsReadonly(settings: User) {
     val knowItems = buildList {
         if (settings.knowSpeak) add("正确朗读")
@@ -398,14 +457,20 @@ private fun SettingsReadonlyRow(label: String, value: String) {
 }
 
 @Composable
-private fun ParentSwitchRow(username: String, onSwitch: (String) -> Unit) {
+private fun ParentSwitchRow(username: String, avatar: String, onSwitch: (String) -> Unit) {
     var password by remember { mutableStateOf("") }
     Column(
         Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
     ) {
-        Text(username, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Ink)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            UserAvatar(avatar, username, size = 36.dp)
+            Text(username, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Ink)
+        }
         Spacer(Modifier.height(6.dp))
         MociTextField(
             value = password,

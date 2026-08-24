@@ -216,6 +216,7 @@ private fun MasteryRankContent(data: MasteryRankData, user: User, onRefresh: () 
                 RankRow(
                     rank = item.rank,
                     username = item.username,
+                    avatar = item.avatar,
                     highlight = user.isLearner && item.userId == user.id,
                     detail = "掌握 ${item.mastered} · 了解 ${item.learning} · ${item.pct.toInt()}%",
                 )
@@ -251,6 +252,7 @@ private fun GameRankContent(data: GameRankData, user: User, onRefresh: () -> Uni
                 RankRow(
                     rank = item.rank,
                     username = item.username,
+                    avatar = item.avatar,
                     highlight = user.isLearner && item.userId == user.id,
                     detail = item.scoreLabel,
                 )
@@ -265,6 +267,7 @@ private fun GameRankContent(data: GameRankData, user: User, onRefresh: () -> Uni
 private fun RankRow(
     rank: Int,
     username: String,
+    avatar: String,
     highlight: Boolean,
     detail: String,
 ) {
@@ -286,7 +289,8 @@ private fun RankRow(
             fontWeight = FontWeight.Bold,
             color = if (highlight) Pine else InkSoft,
         )
-        Column(Modifier.weight(1f)) {
+        UserAvatar(avatar, username, size = 36.dp)
+        Column(Modifier.weight(1f).padding(start = 10.dp)) {
             Text(
                 username,
                 fontSize = 15.sp,

@@ -44,6 +44,7 @@ data class User(
     val knowPhonetic: Boolean,
     val rewardMinutes: Int,
     val wordLevels: List<String> = listOf("primary", "junior", "senior"),
+    val avatar: String = "",
 ) {
     val isAdmin get() = role == "admin"
     val isParent get() = role == "parent"
@@ -72,6 +73,7 @@ data class User(
             knowPhonetic = o.optInt("know_phonetic", 1) == 1,
             rewardMinutes = o.optInt("reward_minutes", 30).coerceIn(0, 180),
             wordLevels = parseWordLevels(o.opt("word_levels")),
+            avatar = o.optString("avatar"),
         )
     }
 }
@@ -394,6 +396,7 @@ data class PendingUser(
     val role: String,
     val status: String,
     val createdAt: String,
+    val avatar: String = "",
 ) {
     companion object {
         fun from(o: JSONObject) = PendingUser(
@@ -402,6 +405,7 @@ data class PendingUser(
             role = o.optString("role"),
             status = o.optString("status", "approved"),
             createdAt = o.optString("created_at"),
+            avatar = o.optString("avatar"),
         )
 
         fun listFrom(arr: JSONArray?): List<PendingUser> {
@@ -631,6 +635,7 @@ data class MasteryRankItem(
     val rank: Int,
     val userId: Int,
     val username: String,
+    val avatar: String = "",
     val mastered: Int,
     val learning: Int,
     val total: Int,
@@ -641,6 +646,7 @@ data class MasteryRankItem(
             rank = o.optInt("rank"),
             userId = o.optInt("user_id"),
             username = o.optString("username"),
+            avatar = o.optString("avatar"),
             mastered = o.optInt("mastered"),
             learning = o.optInt("learning"),
             total = o.optInt("total"),
@@ -672,6 +678,7 @@ data class GameRankItem(
     val rank: Int,
     val userId: Int,
     val username: String,
+    val avatar: String = "",
     val score: Int,
     val scoreLabel: String,
 ) {
@@ -680,6 +687,7 @@ data class GameRankItem(
             rank = o.optInt("rank"),
             userId = o.optInt("user_id"),
             username = o.optString("username"),
+            avatar = o.optString("avatar"),
             score = o.optInt("score"),
             scoreLabel = o.optString("score_label"),
         )

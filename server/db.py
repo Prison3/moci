@@ -220,6 +220,7 @@ def init_schema(db: Database) -> None:
         "word_levels",
         "word_levels TEXT NOT NULL DEFAULT 'primary,junior,senior'",
     )
+    _add_column(db, "users", "avatar", "avatar TEXT NOT NULL DEFAULT ''")
 
     if "words" not in _tables(db):
         _create_words_table(db)

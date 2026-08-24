@@ -104,7 +104,12 @@ fun <T> rememberData(loader: suspend ApiClient.() -> T): DataState<T> {
 // 页面骨架
 
 @Composable
-fun MociTopBar(subtitle: String, username: String, onUserClick: () -> Unit) {
+fun MociTopBar(
+    subtitle: String,
+    username: String,
+    avatar: String = "",
+    onUserClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -118,19 +123,25 @@ fun MociTopBar(subtitle: String, username: String, onUserClick: () -> Unit) {
                 Text(subtitle, fontSize = 12.sp, color = InkSoft)
             }
         }
-        Text(
-            username,
-            fontSize = 14.sp,
-            color = Pine,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
                 .background(Paper2)
                 .border(1.dp, Line, RoundedCornerShape(999.dp))
                 .clickable(onClick = onUserClick)
-                .padding(horizontal = 14.dp, vertical = 6.dp),
-        )
+                .padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+        ) {
+            UserAvatar(avatar, username, size = 32.dp)
+            Text(
+                username,
+                fontSize = 14.sp,
+                color = Pine,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+            )
+        }
     }
 }
 

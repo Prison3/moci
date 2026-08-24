@@ -279,6 +279,11 @@ def word_stats(user_id: int, levels: list[str] | None = None) -> dict:
 
 
 VALID_GAMES = frozenset({"memory", "stars", "reflex", "snake", "tank"})
+AVATAR_OPTIONS = (
+    "🦊", "🐼", "🦁", "🐸", "🦄", "🐱", "🐶", "🐰",
+    "🐻", "🐯", "🐨", "🐷", "🐮", "🐵", "🦉", "🐧",
+    "🐬", "🦋", "🌸", "⭐",
+)
 LOWER_BETTER_GAMES = frozenset({"memory", "reflex"})
 GAME_LABELS = {
     "memory": "记忆翻牌",
@@ -289,6 +294,15 @@ GAME_LABELS = {
 }
 
 
+def avatar_of(user) -> str:
+    raw = ""
+    try:
+        raw = (user["avatar"] or "").strip()
+    except (KeyError, IndexError, TypeError):
+        pass
+    return raw if raw in AVATAR_OPTIONS else ""
+
+
 def mastery_ranking(viewer_id: int | None = None) -> dict:
     db = get_db()
     total = db.execute("SELECT COUNT(*) AS n FROM words").fetchone()["n"] or 0
@@ -297,13 +311,14 @@ def mastery_ranking(viewer_id: int | None = None) -> dict:
         SELECT
             u.id AS user_id,
             u.username,
+            u.avatar,
             COALESCE(SUM(CASE WHEN p.status = 'learning' THEN 1 ELSE 0 END), 0) AS learning,
             COALESCE(SUM(CASE WHEN p.status = 'mastered' THEN 1 ELSE 0 END), 0) AS mastered
         FROM users u
         LEFT JOIN words w ON 1 = 1
         LEFT JOIN progress p ON p.user_id = u.id AND p.word_id = w.id
         WHERE u.role = ? AND u.status = ?
-        GROUP BY u.id, u.username
+        GROUP BY u.id, u.username, u.avatar
         ORDER BY mastered DESC, learning DESC, u.username ASC
         """,
         (ROLE_USER, STATUS_APPROVED),
@@ -318,6 +333,7 @@ def mastery_ranking(viewer_id: int | None = None) -> dict:
             "rank": rank,
             "user_id": row["user_id"],
             "username": row["username"],
+            "avatar": avatar_of(row),
             "mastered": mastered,
             "learning": learning,
             "total": total,
@@ -339,11 +355,12 @@ def game_ranking(game: str, viewer_id: int | None = None) -> dict:
         SELECT
             u.id AS user_id,
             u.username,
+            u.avatar,
             {agg}(gs.score) AS best_score
         FROM users u
         INNER JOIN game_scores gs ON gs.user_id = u.id AND gs.game = ?
         WHERE u.role = ? AND u.status = ?
-        GROUP BY u.id, u.username
+        GROUP BY u.id, u.username, u.avatar
         HAVING best_score IS NOT NULL
         ORDER BY best_score {order}, u.username ASC
         """,
@@ -357,6 +374,7 @@ def game_ranking(game: str, viewer_id: int | None = None) -> dict:
             "rank": rank,
             "user_id": row["user_id"],
             "username": row["username"],
+            "avatar": avatar_of(row),
             "score": score,
             "score_label": format_game_score(game, score),
         }
@@ -1119,7 +1137,7 @@ def children_of(parent_id: int):
 def parents_of(child_id: int):
     return get_db().execute(
         """
-        SELECT u.id, u.username, u.status, u.created_at
+        SELECT u.id, u.username, u.status, u.created_at, u.avatar
         FROM parent_children pc
         JOIN users u ON u.id = pc.parent_id
         WHERE pc.child_id = ?
@@ -1917,6 +1935,7 @@ def _public_user(user) -> dict:
         "know_phonetic": _user_int(user, "know_phonetic", 1),
         "reward_minutes": reward_minutes_of(user),
         "word_levels": levels_of(user),
+        "avatar": avatar_of(user),
         "created_at": user["created_at"],
     }
 
@@ -2310,6 +2329,30 @@ def api_study_day_v1():
     )
 
 
+@app.route("/api/v1/profile/avatar", methods=["POST"])
+@api_required
+def api_profile_avatar():
+    err = api_csrf()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    avatar = (data.get("avatar") or "").strip()
+    if avatar and avatar not in AVATAR_OPTIONS:
+        return api_error("无效的头像。", 400, "bad_request")
+    user = current_user()
+    db = get_db()
+    db.execute("UPDATE users SET avatar = ? WHERE id = ?", (avatar, user["id"]))
+    db.commit()
+    fresh = db.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
+    return jsonify(
+        {
+            "ok": True,
+            "message": "头像已更新。",
+            "user": _public_user(fresh),
+        }
+    )
+
+
 @app.get("/api/v1/profile")
 @api_required
 def api_profile():
@@ -2317,7 +2360,17 @@ def api_profile():
     out: dict = {"ok": True, "user": _public_user(user)}
     if is_learner(user):
         out["stats"] = word_stats(user["id"], levels_of(user))
-        out["parents"] = [dict(r) for r in parents_of(user["id"])]
+        out["parents"] = [
+            {
+                "id": row["id"],
+                "username": row["username"],
+                "role": "parent",
+                "status": row["status"],
+                "created_at": row["created_at"],
+                "avatar": avatar_of(row),
+            }
+            for row in parents_of(user["id"])
+        ]
     elif is_parent(user):
         out["children"] = [
             {"user": _public_user(kid), "task": today_task(kid["id"], kid)}

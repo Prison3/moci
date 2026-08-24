@@ -109,6 +109,7 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
         put("know_phonetic", if (u.knowPhonetic) 1 else 0)
         put("reward_minutes", u.rewardMinutes)
         put("word_levels", JSONArray(u.wordLevels))
+        put("avatar", u.avatar)
     }
 
     private fun cacheUserId(): Int = cachedUser?.id ?: 0
@@ -496,6 +497,17 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
         return cachedGet("profile:$levels", force, ProfileData::from) {
             execute("GET", "/api/v1/profile")
         }
+    }
+
+    suspend fun saveAvatar(avatar: String): User {
+        val json = execute("POST", "/api/v1/profile/avatar", JSONObject().apply {
+            put("avatar", avatar)
+        })
+        val user = User.from(json.getJSONObject("user"))
+        cachedUser = user
+        val uid = cacheUserId()
+        if (uid != 0) cache.removePrefix(uid, "profile")
+        return user
     }
 
     suspend fun saveChildSettings(

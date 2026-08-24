@@ -258,6 +258,7 @@ private fun MainScaffold(
                     else -> "今天也把几个词留下来"
                 },
                 username = user.username,
+                avatar = user.avatar,
                 onUserClick = {
                     currentTab = if (user.isAdmin) "home" else "me"
                 },

@@ -41,6 +41,9 @@ data class DownloadProgress(
 
 object AppUpdater {
     private const val TAG = "AppUpdater"
+    private const val APK_CACHE_NAME = "moci-update.apk"
+
+    fun apkCacheFile(context: Context): File = File(context.cacheDir, APK_CACHE_NAME)
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -68,7 +71,7 @@ object AppUpdater {
                 TAG,
                 "downloadApk response code=${resp.code} contentLength=$contentLength totalBytes=$totalBytes",
             )
-            val out = File(context.cacheDir, "moci-update.apk")
+            val out = apkCacheFile(context)
             val buffer = ByteArray(8192)
             var bytesRead = 0L
             var lastReportAt = 0L
