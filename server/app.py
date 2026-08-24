@@ -236,29 +236,38 @@ def board_href(endpoint: str, date: str, user_id=None, kind=None) -> str:
     return url_for(endpoint, **kwargs)
 
 
-def word_stats(user_id: int) -> dict:
+def word_stats(user_id: int, levels: list[str] | None = None) -> dict:
+    """按学段统计；levels 为空时用全部学段。学生首页应传入家长设置的 word_levels。"""
     db = get_db()
-    total = db.execute("SELECT COUNT(*) AS n FROM words").fetchone()["n"]
+    allowed = parse_word_levels(levels if levels is not None else LEVEL_ALL)
+    placeholders = ",".join("?" * len(allowed))
+    level_sql = f" AND COALESCE(w.level, 'primary') IN ({placeholders})"
+    total = db.execute(
+        f"SELECT COUNT(*) AS n FROM words w WHERE 1 = 1{level_sql}",
+        allowed,
+    ).fetchone()["n"]
     row = db.execute(
-        """
+        f"""
         SELECT
             SUM(CASE WHEN COALESCE(p.status, 'new') = 'new' THEN 1 ELSE 0 END) AS new_count,
             SUM(CASE WHEN p.status = 'learning' THEN 1 ELSE 0 END) AS learning,
             SUM(CASE WHEN p.status = 'mastered' THEN 1 ELSE 0 END) AS mastered
         FROM words w
         LEFT JOIN progress p ON p.word_id = w.id AND p.user_id = ?
+        WHERE 1 = 1{level_sql}
         """,
-        (user_id,),
+        [user_id, *allowed],
     ).fetchone()
     due = db.execute(
-        """
+        f"""
         SELECT COUNT(*) AS n
         FROM words w
         LEFT JOIN progress p ON p.word_id = w.id AND p.user_id = ?
         WHERE COALESCE(p.status, 'new') = 'new'
           AND (p.next_review IS NULL OR p.next_review <= ?)
+          {level_sql}
         """,
-        (user_id, now_iso()),
+        [user_id, now_iso(), *allowed],
     ).fetchone()["n"]
     return {
         "total": total or 0,
@@ -1016,7 +1025,13 @@ def collect_day_words(
     return logs
 
 
-def list_words(user_id: int, q: str = "", status: str = "", level: str = ""):
+def list_words(
+    user_id: int,
+    q: str = "",
+    status: str = "",
+    level: str = "",
+    levels: list[str] | None = None,
+):
     sql = """
         SELECT w.*, COALESCE(p.status, 'new') AS status,
                p.next_review, p.last_reviewed
@@ -1035,6 +1050,11 @@ def list_words(user_id: int, q: str = "", status: str = "", level: str = ""):
     if level in LEVEL_ALL:
         sql += " AND COALESCE(w.level, 'primary') = ?"
         params.append(level)
+    elif levels is not None:
+        allowed = parse_word_levels(levels)
+        placeholders = ",".join("?" * len(allowed))
+        sql += f" AND COALESCE(w.level, 'primary') IN ({placeholders})"
+        params.extend(allowed)
     sql += " ORDER BY w.updated_at DESC"
     return get_db().execute(sql, params).fetchall()
 
@@ -2113,7 +2133,7 @@ def api_home():
         children = [
             {
                 "user": _public_user(kid),
-                "stats": word_stats(kid["id"]),
+                "stats": word_stats(kid["id"], levels_of(kid)),
                 "task": today_task(kid["id"], kid),
             }
             for kid in kids
@@ -2134,11 +2154,12 @@ def api_home():
             }
         )
     calendar = month_study_calendar(user["id"], user)
+    allowed_levels = levels_of(user)
     return jsonify(
         {
             "ok": True,
             "user": _public_user(user),
-            "stats": word_stats(user["id"]),
+            "stats": word_stats(user["id"], allowed_levels),
             "task": today_task(user["id"], user),
             "calendar": calendar,
             "day_words": day_study_words(user["id"], calendar["today"]),
@@ -2173,7 +2194,7 @@ def api_review_cards():
             "ok": True,
             "cards": new_cards + review_cards,
             "task": task,
-            "stats": word_stats(user["id"]),
+            "stats": word_stats(user["id"], levels_of(user)),
             **know_checks_of(user),
         }
     )
@@ -2291,7 +2312,7 @@ def api_profile():
     user = current_user()
     out: dict = {"ok": True, "user": _public_user(user)}
     if is_learner(user):
-        out["stats"] = word_stats(user["id"])
+        out["stats"] = word_stats(user["id"], levels_of(user))
         out["parents"] = [dict(r) for r in parents_of(user["id"])]
     elif is_parent(user):
         out["children"] = [
@@ -2313,7 +2334,13 @@ def api_my_words():
     q = (request.args.get("q") or "").strip()
     raw_level = (request.args.get("level") or "").strip().lower()
     level = raw_level if raw_level in LEVEL_ALL else ""
-    rows = list_words(user["id"], q=q, status=status, level=level)
+    rows = list_words(
+        user["id"],
+        q=q,
+        status=status,
+        level=level,
+        levels=None if level else levels_of(user),
+    )
     return jsonify(
         {
             "ok": True,

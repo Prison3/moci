@@ -16,6 +16,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,7 @@ fun MeScreen(
     val data = state.data
 
     var selectedChildId by remember(user.id) { mutableIntStateOf(-1) }
+    LaunchedEffect(user.settingsKey) { state.reload() }
 
     Column(
         Modifier
@@ -77,17 +79,26 @@ fun MeScreen(
             state.loading && data == null -> LoadingBox()
             state.error != null && data == null -> ErrorBox(state.error!!, state.reload)
             data != null -> {
-                // 学生：统计 + 切换家长
+                // 学生：统计 + 家长配置（只读）+ 切换家长
                 if (user.isLearner) {
+                    val settingsUser = data.user
                     data.stats?.let { stats ->
                         StatGrid(
                             listOf(
                                 "${stats.total}" to "单词",
+                                "${stats.newCount}" to "新词",
                                 "${stats.learning}" to "了解",
                                 "${stats.mastered}" to "掌握",
                             )
                         )
+                        Text(
+                            "统计范围：${settingsUser.wordLevels.joinToString("、") { levelLabelOf(it) }}（家长设置）",
+                            fontSize = 12.sp,
+                            color = InkSoft,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+                        )
                     }
+                    LearnerSettingsReadonly(settingsUser)
                     PanelCard {
                         PanelTitle("切换账号")
                         Text(
@@ -216,6 +227,56 @@ fun MeScreen(
                 Spacer(Modifier.height(16.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun LearnerSettingsReadonly(settings: User) {
+    val knowItems = buildList {
+        if (settings.knowSpeak) add("正确朗读")
+        if (settings.knowSpell) add("正确默写")
+        if (settings.knowPos) add("正确词性")
+        if (settings.knowPhonetic) add("正确音标")
+    }
+    PanelCard {
+        PanelTitle("学习配置")
+        Text(
+            "由家长设置，学生端不可修改。",
+            fontSize = 12.sp,
+            color = InkSoft,
+        )
+        Spacer(Modifier.height(10.dp))
+        SettingsReadonlyRow("每日新词", "${settings.dailyWords}")
+        SettingsReadonlyRow("每日复习", "${settings.dailyReview}")
+        SettingsReadonlyRow("游戏奖励", "${settings.rewardMinutes} 分钟")
+        SettingsReadonlyRow(
+            "学习学段",
+            settings.wordLevels.joinToString("、") { levelLabelOf(it) },
+        )
+        SettingsReadonlyRow(
+            "学会判定",
+            if (knowItems.isEmpty()) "无额外要求" else knowItems.joinToString(" · "),
+        )
+    }
+}
+
+@Composable
+private fun SettingsReadonlyRow(label: String, value: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(label, fontSize = 14.sp, color = InkSoft)
+        Text(
+            value,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = Ink,
+            modifier = Modifier.padding(start = 16.dp),
+        )
     }
 }
 

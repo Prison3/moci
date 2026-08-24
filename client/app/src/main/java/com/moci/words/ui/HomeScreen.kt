@@ -36,6 +36,7 @@ import com.moci.words.api.CalCell
 import com.moci.words.api.DayWord
 import com.moci.words.api.ParentHome
 import com.moci.words.api.User
+import com.moci.words.api.levelLabelOf
 import kotlinx.coroutines.launch
 
 /** 首页：按角色分学生 / 家长 / 管理员三种。 */
@@ -113,6 +114,12 @@ private fun LearnerHomeScreen(settingsKey: String, wordsKey: Long, onStartStudy:
                             else -> "mastered" to "掌握"
                         }
                     },
+                )
+                Text(
+                    "统计范围：${data.user.wordLevels.joinToString("、") { levelLabelOf(it) }}（家长设置）",
+                    fontSize = 12.sp,
+                    color = InkSoft,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
                 )
 
                 // 今日任务

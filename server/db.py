@@ -304,53 +304,18 @@ def init_schema(db: Database) -> None:
         db.execute(
             "ALTER TABLE words ADD COLUMN level TEXT NOT NULL DEFAULT 'primary'"
         )
-        db.execute(
-            """
-            UPDATE words SET level = 'junior'
-            WHERE level = 'primary' AND notes LIKE '初中%'
-            """
-        )
-        db.execute(
-            """
-            UPDATE words SET level = 'senior'
-            WHERE level = 'primary' AND notes LIKE '高中%'
-            """
-        )
-        db.execute(
-            """
-            UPDATE words SET level = 'college'
-            WHERE level = 'primary' AND notes LIKE '大学%'
-            """
-        )
-    else:
-        # 兜底：若曾加列但未回填，按 notes 再刷一次空/默认值
-        db.execute(
-            """
-            UPDATE words SET level = 'junior'
-            WHERE (level IS NULL OR level = '' OR level = 'primary')
-              AND notes LIKE '初中%'
-            """
-        )
-        db.execute(
-            """
-            UPDATE words SET level = 'senior'
-            WHERE (level IS NULL OR level = '' OR level = 'primary')
-              AND notes LIKE '高中%'
-            """
-        )
-        db.execute(
-            """
-            UPDATE words SET level = 'college'
-            WHERE (level IS NULL OR level = '' OR level = 'primary')
-              AND notes LIKE '大学%'
-            """
-        )
-        db.execute(
-            """
-            UPDATE words SET level = 'primary'
-            WHERE level IS NULL OR level = ''
-            """
-        )
+    # 每次启动按 notes 前缀同步学段，避免历史数据全落在 primary 导致统计不准
+    db.execute("UPDATE words SET level = 'junior' WHERE notes LIKE '初中%'")
+    db.execute("UPDATE words SET level = 'senior' WHERE notes LIKE '高中%'")
+    db.execute("UPDATE words SET level = 'college' WHERE notes LIKE '大学%'")
+    db.execute(
+        """
+        UPDATE words SET level = 'primary'
+        WHERE notes NOT LIKE '初中%'
+          AND notes NOT LIKE '高中%'
+          AND notes NOT LIKE '大学%'
+        """
+    )
     db.execute("CREATE INDEX IF NOT EXISTS idx_words_level ON words (level)")
 
     admin_n = db.execute(

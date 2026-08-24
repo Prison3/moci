@@ -169,16 +169,16 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
     private suspend fun invalidateParentProfile() {
         val uid = cacheUserId()
         if (uid == 0) return
-        cache.remove(uid, "profile")
+        cache.removePrefix(uid, "profile")
         cache.removePrefix(uid, "home:parent:")
     }
 
     private suspend fun invalidateLearnerProgress() {
         val uid = cacheUserId()
         if (uid == 0) return
-        cache.remove(uid, "home:learner")
+        cache.removePrefix(uid, "home:learner")
         cache.remove(uid, "review:cards")
-        cache.remove(uid, "profile")
+        cache.removePrefix(uid, "profile")
         cache.removePrefix(uid, "study-day:")
         cache.removePrefix(uid, "my-words:")
         cache.removePrefix(uid, "home:parent:")
@@ -189,11 +189,12 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
         if (uid != 0) {
             cache.removePrefix(uid, "words:")
             cache.remove(uid, "home:admin")
-            cache.remove(uid, "home:learner")
+            cache.removePrefix(uid, "home:learner")
             cache.remove(uid, "review:cards")
             cache.removePrefix(uid, "study-day:")
             cache.removePrefix(uid, "my-words:")
             cache.removePrefix(uid, "home:parent:")
+            cache.removePrefix(uid, "profile")
         }
         wordsSyncKey++
     }
@@ -381,10 +382,12 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
     // ------------------------------------------------------------------
     // 首页 / 学习
 
-    suspend fun homeLearner(force: Boolean = false): LearnerHome =
-        cachedGet("home:learner", force, LearnerHome::from) {
+    suspend fun homeLearner(force: Boolean = false): LearnerHome {
+        val levels = cachedUser?.wordLevels?.joinToString(",") ?: ""
+        return cachedGet("home:learner:$levels", force, LearnerHome::from) {
             execute("GET", "/api/v1/home")
         }
+    }
 
     suspend fun homeParent(
         date: String? = null,
@@ -449,10 +452,12 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
     // ------------------------------------------------------------------
     // 我的 / 家长设置 / 切换账号
 
-    suspend fun profile(force: Boolean = false): ProfileData =
-        cachedGet("profile", force, ProfileData::from) {
+    suspend fun profile(force: Boolean = false): ProfileData {
+        val levels = cachedUser?.wordLevels?.joinToString(",") ?: ""
+        return cachedGet("profile:$levels", force, ProfileData::from) {
             execute("GET", "/api/v1/profile")
         }
+    }
 
     suspend fun saveChildSettings(
         childId: Int,
