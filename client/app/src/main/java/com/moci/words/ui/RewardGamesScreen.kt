@@ -72,6 +72,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.moci.words.MociApp
+import com.moci.words.GameSfx
 import com.moci.words.RewardQuota
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -177,7 +178,10 @@ fun RewardGamesScreen(
                 onBack = onBack,
                 remaining = remaining,
                 limitMinutes = limitMinutes,
-                onPick = { game = it },
+                onPick = {
+                    GameSfx.tap()
+                    game = it
+                },
             )
             RewardGame.Memory -> MemoryGame(
                 remaining = remaining,
@@ -492,6 +496,7 @@ private fun MemoryGame(
         locked = false
         playing = true
         onPlayingChanged(true)
+        GameSfx.start()
     }
 
     LaunchedEffect(remaining) {
@@ -512,12 +517,16 @@ private fun MemoryGame(
             tiles = tiles.map {
                 if (it.id == a.id || it.id == b.id) it.copy(matched = true) else it
             }
+            GameSfx.match()
             if (tiles.all { it.matched }) {
                 won = true
                 playing = false
                 onPlayingChanged(false)
                 onScore(moves)
+                GameSfx.win()
             }
+        } else {
+            GameSfx.miss()
         }
         open = emptyList()
         locked = false
@@ -587,6 +596,7 @@ private fun MemoryGame(
                                 .clickable(enabled = playing && !locked && !revealed && !won) {
                                     if (open.size < 2 && tile.id !in open) {
                                         open = open + tile.id
+                                        GameSfx.flip()
                                     }
                                 },
                             contentAlignment = Alignment.Center,
@@ -778,6 +788,7 @@ private fun StarsGame(
             finished = true
             onPlayingChanged(false)
             onScore(score)
+            GameSfx.win()
         }
     }
 
@@ -834,6 +845,7 @@ private fun StarsGame(
                             .size(68.dp),
                         onClick = {
                             score += 1
+                            GameSfx.hit()
                             spawn()
                         },
                     )
@@ -866,6 +878,7 @@ private fun StarsGame(
                                 spawn()
                                 playing = true
                                 onPlayingChanged(true)
+                                GameSfx.start()
                             },
                         )
                     } else {
@@ -903,6 +916,7 @@ private fun ReflexGame(
         if (phase == ReflexPhase.Wait && waitToken == token) {
             goAt = System.currentTimeMillis()
             phase = ReflexPhase.Go
+            GameSfx.go()
         }
     }
 
@@ -953,10 +967,12 @@ private fun ReflexGame(
                             waitToken += 1
                             phase = ReflexPhase.Wait
                             onPlayingChanged(true)
+                            GameSfx.start()
                         }
                         ReflexPhase.Wait -> {
                             phase = ReflexPhase.Early
                             onPlayingChanged(false)
+                            GameSfx.early()
                         }
                         ReflexPhase.Go -> {
                             val elapsed = max(1, (System.currentTimeMillis() - goAt).toInt())
@@ -965,6 +981,7 @@ private fun ReflexGame(
                             phase = ReflexPhase.Result
                             onPlayingChanged(false)
                             onScore(elapsed)
+                            GameSfx.hit()
                         }
                     }
                 },
@@ -1182,6 +1199,7 @@ private fun SnakeGame(
         over = false
         playing = true
         onPlayingChanged(true)
+        GameSfx.start()
     }
 
     LaunchedEffect(remaining) {
@@ -1230,10 +1248,12 @@ private fun SnakeGame(
                 playing = false
                 onPlayingChanged(false)
                 onScore(score)
+                GameSfx.lose()
                 break
             }
             snake = if (grow) {
                 score += 1
+                GameSfx.eat()
                 val grown = listOf(newHead) + snake
                 food = placeFood(grown)
                 grown
@@ -1479,6 +1499,7 @@ private fun TankGame(
         tick = 0
         playing = true
         onPlayingChanged(true)
+        GameSfx.start()
     }
 
     LaunchedEffect(remaining) {
@@ -1499,6 +1520,7 @@ private fun TankGame(
             // 玩家自动开火
             if (tick % 7 == 0) {
                 bullets = bullets + Bullet(playerX, 0.84f, fromPlayer = true)
+                if (tick % 14 == 0) GameSfx.shoot()
             }
 
             // 子弹
@@ -1558,6 +1580,7 @@ private fun TankGame(
             if (hitEnemies.isNotEmpty()) {
                 enemies = enemies.filterIndexed { i, _ -> i !in hitEnemies }
                 bullets = bullets.filterIndexed { i, _ -> i !in hitBullets }
+                GameSfx.boom()
             }
 
             // 漏到底的敌人清掉（不扣命）
@@ -1577,11 +1600,13 @@ private fun TankGame(
                 lives -= 1
                 enemies = enemies.filter { it.y < 0.7f }
                 bullets = bullets.filter { it.fromPlayer }
+                GameSfx.hurt()
                 if (lives <= 0) {
                     over = true
                     playing = false
                     onPlayingChanged(false)
                     onScore(score)
+                    GameSfx.lose()
                 }
             }
         }
