@@ -3,4 +3,20 @@
     <string name="app_name">Moci</string>
     <string name="error_title">无法连接服务器</string>
     <string name="error_retry">重试</string>
+
+    <string name="notify_channel_sync">实时同步</string>
+    <string name="notify_channel_sync_desc">保持与服务器的连接，以便及时收到词库和学习设置更新。</string>
+    <string name="notify_channel_events">学习提醒</string>
+    <string name="notify_channel_events_desc">有新单词或学习设置变更时通知你。</string>
+    <string name="notify_sync_title">Moci 正在同步</string>
+    <string name="notify_sync_text">词库和学习设置有更新时会通知你。</string>
+    <string name="notify_words_created_title">词库有新单词</string>
+    <string name="notify_words_created_text">管理员录入了新单词，打开 App 即可学习。</string>
+    <string name="notify_words_updated_title">词库有更新</string>
+    <string name="notify_words_updated_text">有单词被修改，打开 App 查看最新内容。</string>
+    <string name="notify_words_deleted_title">词库有单词被删除</string>
+    <string name="notify_words_deleted_text">词库已调整，学习任务会按最新词库更新。</string>
+    <string name="notify_words_generic_text">词库有变化，打开 App 查看。</string>
+    <string name="notify_settings_title">学习设置已更新</string>
+    <string name="notify_settings_text">家长修改了每日任务或学习学段，打开 App 即可生效。</string>
 </resources>

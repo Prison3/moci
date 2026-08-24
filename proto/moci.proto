@@ -46,6 +46,7 @@ message UserSettings {
   bool know_pos = 9;
   bool know_phonetic = 10;
   int32 reward_minutes = 11;
+  repeated string word_levels = 12;
 }
 
 message SettingsUpdated {

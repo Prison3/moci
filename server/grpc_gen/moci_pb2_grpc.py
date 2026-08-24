@@ -5,7 +5,7 @@ import warnings
 
 from . import moci_pb2 as moci__pb2
 
-GRPC_GENERATED_VERSION = '1.80.0'
+GRPC_GENERATED_VERSION = '1.83.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -25,7 +25,7 @@ if _version_not_supported:
     )
 
 
-class SyncServiceStub(object):
+class SyncServiceStub:
     """Missing associated documentation comment in .proto file."""
 
     def __init__(self, channel):
@@ -41,7 +41,7 @@ class SyncServiceStub(object):
                 _registered_method=True)
 
 
-class SyncServiceServicer(object):
+class SyncServiceServicer:
     """Missing associated documentation comment in .proto file."""
 
     def Connect(self, request_iterator, context):
@@ -66,7 +66,7 @@ def add_SyncServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class SyncService(object):
+class SyncService:
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
@@ -97,7 +97,7 @@ class SyncService(object):
             _registered_method=True)
 
 
-class ApiServiceStub(object):
+class ApiServiceStub:
     """Missing associated documentation comment in .proto file."""
 
     def __init__(self, channel):
@@ -113,7 +113,7 @@ class ApiServiceStub(object):
                 _registered_method=True)
 
 
-class ApiServiceServicer(object):
+class ApiServiceServicer:
     """Missing associated documentation comment in .proto file."""
 
     def Invoke(self, request, context):
@@ -138,7 +138,7 @@ def add_ApiServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class ApiService(object):
+class ApiService:
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod

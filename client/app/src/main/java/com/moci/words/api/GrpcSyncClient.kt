@@ -26,7 +26,7 @@ class GrpcSyncClient(
     private val port: Int,
     private val sessionProvider: () -> String?,
     private val onSettingsUpdated: (suspend (User) -> Unit)? = null,
-    private val onWordsUpdated: (suspend () -> Unit)? = null,
+    private val onWordsUpdated: (suspend (action: String) -> Unit)? = null,
     private val onUnauthorized: () -> Unit,
 ) {
     private var streamJob: Job? = null
@@ -94,14 +94,16 @@ class GrpcSyncClient(
                             knowPos = u.knowPos,
                             knowPhonetic = u.knowPhonetic,
                             rewardMinutes = u.rewardMinutes.coerceIn(0, 180),
+                            wordLevels = parseWordLevels(u.wordLevelsList),
                         )
                         scope.launch {
                             runCatching { onSettingsUpdated?.invoke(user) }
                         }
                     }
                     ServerMessage.BodyCase.WORDS_UPDATED -> {
+                        val action = value.wordsUpdated.action
                         scope.launch {
-                            runCatching { onWordsUpdated?.invoke() }
+                            runCatching { onWordsUpdated?.invoke(action) }
                         }
                     }
                     ServerMessage.BodyCase.ERROR -> {

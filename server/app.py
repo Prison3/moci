@@ -600,7 +600,16 @@ def levels_of(user) -> list[str]:
     try:
         raw = user["word_levels"]
     except (KeyError, IndexError, TypeError):
-        return list(LEVEL_ALL)
+        raw = None
+    if raw is None:
+        try:
+            user_id = user["id"]
+        except (KeyError, IndexError, TypeError):
+            return list(LEVEL_ALL)
+        row = get_db().execute(
+            "SELECT word_levels FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        raw = row["word_levels"] if row else None
     return parse_word_levels(raw)
 
 
@@ -1076,7 +1085,8 @@ def children_of(parent_id: int):
     return get_db().execute(
         """
         SELECT u.id, u.username, u.role, u.status, u.created_at, u.daily_words, u.daily_review,
-               u.know_speak, u.know_spell, u.know_pos, u.know_phonetic, u.reward_minutes
+               u.know_speak, u.know_spell, u.know_pos, u.know_phonetic, u.reward_minutes,
+               u.word_levels
         FROM parent_children pc
         JOIN users u ON u.id = pc.child_id
         WHERE pc.parent_id = ?

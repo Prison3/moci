@@ -1,7 +1,7 @@
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
-from collections.abc import Mapping as _Mapping
+from collections.abc import Iterable as _Iterable, Mapping as _Mapping
 from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
@@ -45,7 +45,7 @@ class Ready(_message.Message):
     def __init__(self, user_id: _Optional[int] = ...) -> None: ...
 
 class UserSettings(_message.Message):
-    __slots__ = ("id", "username", "role", "status", "daily_words", "daily_review", "know_speak", "know_spell", "know_pos", "know_phonetic", "reward_minutes")
+    __slots__ = ("id", "username", "role", "status", "daily_words", "daily_review", "know_speak", "know_spell", "know_pos", "know_phonetic", "reward_minutes", "word_levels")
     ID_FIELD_NUMBER: _ClassVar[int]
     USERNAME_FIELD_NUMBER: _ClassVar[int]
     ROLE_FIELD_NUMBER: _ClassVar[int]
@@ -57,6 +57,7 @@ class UserSettings(_message.Message):
     KNOW_POS_FIELD_NUMBER: _ClassVar[int]
     KNOW_PHONETIC_FIELD_NUMBER: _ClassVar[int]
     REWARD_MINUTES_FIELD_NUMBER: _ClassVar[int]
+    WORD_LEVELS_FIELD_NUMBER: _ClassVar[int]
     id: int
     username: str
     role: str
@@ -68,7 +69,8 @@ class UserSettings(_message.Message):
     know_pos: bool
     know_phonetic: bool
     reward_minutes: int
-    def __init__(self, id: _Optional[int] = ..., username: _Optional[str] = ..., role: _Optional[str] = ..., status: _Optional[str] = ..., daily_words: _Optional[int] = ..., daily_review: _Optional[int] = ..., know_speak: bool = ..., know_spell: bool = ..., know_pos: bool = ..., know_phonetic: bool = ..., reward_minutes: _Optional[int] = ...) -> None: ...
+    word_levels: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, id: _Optional[int] = ..., username: _Optional[str] = ..., role: _Optional[str] = ..., status: _Optional[str] = ..., daily_words: _Optional[int] = ..., daily_review: _Optional[int] = ..., know_speak: _Optional[bool] = ..., know_spell: _Optional[bool] = ..., know_pos: _Optional[bool] = ..., know_phonetic: _Optional[bool] = ..., reward_minutes: _Optional[int] = ..., word_levels: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class SettingsUpdated(_message.Message):
     __slots__ = ("user",)
@@ -135,4 +137,4 @@ class ApiInvokeResponse(_message.Message):
     http_status: int
     session: str
     csrf_token: str
-    def __init__(self, ok: bool = ..., error: _Optional[str] = ..., message: _Optional[str] = ..., body_json: _Optional[str] = ..., http_status: _Optional[int] = ..., session: _Optional[str] = ..., csrf_token: _Optional[str] = ...) -> None: ...
+    def __init__(self, ok: _Optional[bool] = ..., error: _Optional[str] = ..., message: _Optional[str] = ..., body_json: _Optional[str] = ..., http_status: _Optional[int] = ..., session: _Optional[str] = ..., csrf_token: _Optional[str] = ...) -> None: ...

@@ -2,6 +2,7 @@ package com.moci.words
 
 import android.app.Application
 import com.moci.words.api.ApiClient
+import com.moci.words.notify.MociNotifier
 
 class MociApp : Application() {
 
@@ -14,6 +15,7 @@ class MociApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        MociNotifier.ensureChannels(this)
         api = ApiClient(this, BuildConfig.BASE_URL, BuildConfig.GRPC_PORT)
         tts = MociTts(this)
         speech = MociSpeech(this)

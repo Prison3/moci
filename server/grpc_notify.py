@@ -19,6 +19,7 @@ def _user_settings(user: dict) -> moci_pb2.UserSettings:
         know_pos=bool(int(user.get("know_pos") or 1)),
         know_phonetic=bool(int(user.get("know_phonetic") or 1)),
         reward_minutes=30 if user.get("reward_minutes") is None else int(user["reward_minutes"]),
+        word_levels=list(user.get("word_levels") or []),
     )
 
 

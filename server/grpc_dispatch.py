@@ -16,15 +16,29 @@ def _session_from_set_cookie(headers) -> str | None:
     return None
 
 
+def _cookie_value(raw) -> str | None:
+    """Flask/Werkzeug get_cookie 可能返回 Cookie 对象，这里统一成字符串。"""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        text = raw.strip()
+        return text or None
+    value = getattr(raw, "value", None)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def _session_from_client(client, prior: str | None) -> str | None:
     """Flask test client 有时把 cookie 放进 jar 而不出现在 Set-Cookie 头里。"""
     try:
         getter = getattr(client, "get_cookie", None)
         if not callable(getter):
             return None
-        value = getter("session")
-        if value and value != prior:
-            return value
+        text = _cookie_value(getter("session"))
+        if text and text != prior:
+            return text
     except Exception:
         pass
     return None
@@ -85,6 +99,6 @@ def invoke_flask_api(
             "message": str(payload.get("message", "")) if isinstance(payload, dict) else "",
             "body_json": json.dumps(payload, ensure_ascii=False),
             "http_status": resp.status_code,
-            "session": new_session or "",
-            "csrf_token": csrf_token or "",
+            "session": _cookie_value(new_session) or "",
+            "csrf_token": str(csrf_token or ""),
         }

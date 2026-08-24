@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import android.util.Log
 import com.moci.words.db.ApiCache
 import com.moci.words.db.MociDatabase
+import com.moci.words.notify.MociNotifier
+import com.moci.words.sync.SyncForegroundService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -45,7 +47,7 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
 
     var onSettingsUpdated: (suspend (User) -> Unit)? = null
 
-    var onWordsUpdated: (suspend () -> Unit)? = null
+    var onWordsUpdated: (suspend (action: String) -> Unit)? = null
 
     @Volatile
     var wordsSyncKey: Long = 0
@@ -116,36 +118,37 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
         if (uid != 0) cache.clearUser(uid) else cache.clearAll()
     }
 
-    /** 启动 gRPC 双向流，接收服务端推送（设置变更、词库变更）。 */
+    /** 启动 gRPC 双向流，接收服务端推送（设置变更、词库变更）并弹出系统通知。 */
     fun startSync(scope: CoroutineScope) {
         if (!hasSession) {
             stopSync()
             return
         }
-        if (grpcSync != null) return
+        stopSync()
         syncScope = scope
         grpcSync = GrpcSyncClient(
             host = grpcHost(),
             port = effectiveGrpcPort(),
             sessionProvider = { prefs.getString("session", null) },
-            onSettingsUpdated = if (cachedUser?.isLearner == true) {
-                { user ->
+            onSettingsUpdated = { user ->
+                if (cachedUser?.isLearner == true || user.isLearner) {
                     invalidateLearnerProgress()
                     cachedUser = user
                     onSettingsUpdated?.invoke(user)
                 }
-            } else {
-                null
+                MociNotifier.notifySettingsUpdated(appContext)
             },
-            onWordsUpdated = {
+            onWordsUpdated = { action ->
                 invalidateWordsLibrary()
-                onWordsUpdated?.invoke()
+                onWordsUpdated?.invoke(action)
+                MociNotifier.notifyWordsUpdated(appContext, action)
             },
             onUnauthorized = {
                 cachedUser?.username?.let { rememberUsername(it) }
                 clearSession()
                 syncScope?.launch { clearCacheAfterSessionGone() }
                 listener?.onUnauthorized()
+                SyncForegroundService.stop(appContext)
             },
         )
         grpcSync?.start(scope)
@@ -362,6 +365,7 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
 
     suspend fun logout() {
         stopSync()
+        SyncForegroundService.stop(appContext)
         cachedUser?.username?.let { rememberUsername(it) }
         runCatching { execute("POST", "/api/v1/auth/logout") }
         clearSession()

@@ -1,10 +1,14 @@
 package com.moci.words
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +62,7 @@ import com.moci.words.ui.UpdateDialog
 import com.moci.words.ui.UsersScreen
 import com.moci.words.ui.WordsScreen
 import com.moci.words.ui.rememberWordsScreenState
+import com.moci.words.sync.SyncForegroundService
 import com.moci.words.ui.toast
 import kotlinx.coroutines.launch
 
@@ -76,6 +81,9 @@ class MainActivity : ComponentActivity() {
                 var updating by remember { mutableStateOf(false) }
                 val context = LocalContext.current
                 val scope = rememberCoroutineScope()
+                val notifyPermission = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission(),
+                ) { /* 未授权时仍可同步，只是事件通知会被系统拦下 */ }
 
                 // 会话过期（任意请求 401）→ 回登录页
                 remember {
@@ -106,6 +114,18 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     booting = false
+                }
+
+                androidx.compose.runtime.LaunchedEffect(user?.id, booting) {
+                    if (booting) return@LaunchedEffect
+                    if (user != null) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            notifyPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                        SyncForegroundService.start(context)
+                    } else {
+                        SyncForegroundService.stop(context)
+                    }
                 }
 
                 updateInfo?.let { info ->
@@ -209,7 +229,7 @@ private fun MainScaffold(
             null
         }
         app.api.onWordsUpdated = { wordsKey = app.api.wordsSyncKey }
-        app.api.startSync(scope)
+        SyncForegroundService.start(app)
         if (user.isAdmin) wordsState.load(scope)
     }
 
