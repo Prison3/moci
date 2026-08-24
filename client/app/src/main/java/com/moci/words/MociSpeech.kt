@@ -41,6 +41,7 @@ class MociSpeech(private val appContext: Context) {
     private var speechService: SpeechService? = null
     private var callback: Callback? = null
     private var timeoutRunnable: Runnable? = null
+    private var expectedNormalized: String = ""
     private val cancelled = AtomicBoolean(false)
     private val finished = AtomicBoolean(false)
 
@@ -100,6 +101,7 @@ class MociSpeech(private val appContext: Context) {
         cancelled.set(false)
         finished.set(false)
         heard.clear()
+        expectedNormalized = normalizeHeard(expectedTerm.orEmpty())
         this.callback = callback
 
         val ready = model
@@ -205,19 +207,41 @@ class MociSpeech(private val appContext: Context) {
     }
 
     private fun collectHypothesis(raw: String?) {
-        val texts = parseHypotheses(raw)
+        val texts = parseHypotheses(raw).map { cleanHeard(it) }.filter { it.isNotEmpty() }
         if (texts.isEmpty()) return
         synchronized(heard) {
             heard.addAll(texts)
         }
-        Log.d(TAG, "Heard += $texts → $heard")
+        Log.d(TAG, "Heard += $texts (want=$expectedNormalized)")
+        if (expectedNormalized.isNotEmpty()) {
+            val candidates = heardCandidates(synchronized(heard) { heard.toList() })
+            val hit = candidates.any { hypothesisMatches(it, expectedNormalized, loose = false) }
+            if (hit) {
+                Log.i(TAG, "Early match for expected=$expectedNormalized")
+                finishWithHeard()
+            }
+        }
     }
 
     private fun finishWithHeard() {
         if (cancelled.get() || !finished.compareAndSet(false, true)) return
         clearTimeout()
-        val texts = synchronized(heard) { heard.toList() }
-        Log.i(TAG, "Finish results=$texts")
+        val texts = synchronized(heard) {
+            heard.map { cleanHeard(it) }.filter { it.isNotEmpty() }.distinct()
+        }
+        val candidates = heardCandidates(texts)
+        val matched = expectedNormalized.isNotEmpty() &&
+            candidates.any { hypothesisMatches(it, expectedNormalized, loose = true) }
+        Log.i(
+            TAG,
+            "Finish results=$candidates want=$expectedNormalized matched=$matched",
+        )
+        // 已匹配时优先回传目标文本，方便服务端校验
+        val out = if (matched) {
+            listOf(expectedNormalized) + candidates.filter { it != expectedNormalized }
+        } else {
+            candidates
+        }
         main.post {
             teardownService()
             val cb = callback
@@ -226,10 +250,10 @@ class MociSpeech(private val appContext: Context) {
                 cb?.onEnd()
                 return@post
             }
-            if (texts.isEmpty()) {
+            if (out.isEmpty()) {
                 cb?.onError("no-match")
             } else {
-                cb?.onResults(texts)
+                cb?.onResults(out)
             }
             cb?.onEnd()
         }
@@ -268,17 +292,20 @@ class MociSpeech(private val appContext: Context) {
     }
 
     private fun buildRecognizer(model: Model, expectedTerm: String?): Recognizer {
-        val term = expectedTerm?.trim()?.lowercase().orEmpty()
-        val recognizer = if (term.isNotEmpty()) {
+        val expanded = normalizeHeard(expectedTerm.orEmpty())
+        val tokenCount = expanded.split(" ").count { it.isNotEmpty() }
+        // 只有单词用语法约束；短语/例句一律用语言模型自由识别（语法会把长句听成 [unk] 或单个词）
+        val recognizer = if (tokenCount == 1) {
             val grammar = JSONArray()
-                .put(term)
+                .put(expanded)
                 .put("[unk]")
                 .toString()
             Recognizer(model, SAMPLE_RATE, grammar)
         } else {
             Recognizer(model, SAMPLE_RATE)
         }
-        runCatching { recognizer.setMaxAlternatives(3) }
+        runCatching { recognizer.setMaxAlternatives(5) }
+        runCatching { recognizer.setWords(true) }
         runCatching { recognizer.setPartialWords(true) }
         return recognizer
     }
@@ -301,6 +328,20 @@ class MociSpeech(private val appContext: Context) {
             }
             val partial = obj.optString("partial").trim()
             if (partial.isNotEmpty()) texts.add(partial)
+            // setWords 时可能只有 result 数组
+            val words = obj.optJSONArray("result")
+            if (words != null && words.length() > 0) {
+                val joined = buildString {
+                    for (i in 0 until words.length()) {
+                        val w = words.optJSONObject(i)?.optString("word").orEmpty().trim()
+                        if (w.isNotEmpty() && w != "[unk]") {
+                            if (isNotEmpty()) append(' ')
+                            append(w)
+                        }
+                    }
+                }
+                if (joined.isNotEmpty()) texts.add(joined)
+            }
             texts.toList()
         } catch (_: Exception) {
             listOf(raw.trim()).filter { it.isNotEmpty() }
@@ -320,7 +361,224 @@ class MociSpeech(private val appContext: Context) {
     companion object {
         private const val TAG = "MociSpeech"
         private const val ASSET_MODEL = "model-en-us"
-        private const val SAMPLE_RATE = 16_000.0f
-        private const val DEFAULT_TIMEOUT_MS = 6_000
+        private const val SAMPLE_RATE = 16000.0f
+        private const val DEFAULT_TIMEOUT_MS = 6000
+
+        private val APOSTROPHE_CONTRACTIONS = listOf(
+            "won't" to "will not",
+            "can't" to "can not",
+            "don't" to "do not",
+            "doesn't" to "does not",
+            "didn't" to "did not",
+            "isn't" to "is not",
+            "aren't" to "are not",
+            "wasn't" to "was not",
+            "weren't" to "were not",
+            "haven't" to "have not",
+            "hasn't" to "has not",
+            "hadn't" to "had not",
+            "wouldn't" to "would not",
+            "shouldn't" to "should not",
+            "couldn't" to "could not",
+            "let's" to "let us",
+            "i'm" to "i am",
+            "you're" to "you are",
+            "we're" to "we are",
+            "they're" to "they are",
+            "it's" to "it is",
+            "that's" to "that is",
+            "what's" to "what is",
+            "who's" to "who is",
+            "where's" to "where is",
+            "how's" to "how is",
+            "he's" to "he is",
+            "she's" to "she is",
+            "there's" to "there is",
+            "here's" to "here is",
+        )
+
+        /** Vosk 常把缩写听成无撇号形式。 */
+        private val ASR_CONTRACTIONS = mapOf(
+            "wont" to listOf("will", "not"),
+            "cant" to listOf("can", "not"),
+            "dont" to listOf("do", "not"),
+            "doesnt" to listOf("does", "not"),
+            "didnt" to listOf("did", "not"),
+            "isnt" to listOf("is", "not"),
+            "arent" to listOf("are", "not"),
+            "wasnt" to listOf("was", "not"),
+            "werent" to listOf("were", "not"),
+            "havent" to listOf("have", "not"),
+            "hasnt" to listOf("has", "not"),
+            "hadnt" to listOf("had", "not"),
+            "wouldnt" to listOf("would", "not"),
+            "shouldnt" to listOf("should", "not"),
+            "couldnt" to listOf("could", "not"),
+            "lets" to listOf("let", "us"),
+            "im" to listOf("i", "am"),
+            "youre" to listOf("you", "are"),
+            "theyre" to listOf("they", "are"),
+            "thats" to listOf("that", "is"),
+            "whats" to listOf("what", "is"),
+            "whos" to listOf("who", "is"),
+            "wheres" to listOf("where", "is"),
+            "hows" to listOf("how", "is"),
+        )
+
+        private val STOP_WORDS = setOf(
+            "a", "an", "the", "to", "of", "in", "on", "at", "for", "and", "or", "is", "are",
+            "am", "be", "was", "were", "do", "does", "did", "have", "has", "had",
+        )
+
+        /** 去掉 Vosk 的 [unk]，展开常见缩写，只留可匹配英文。 */
+        fun cleanHeard(text: String): String = normalizeHeard(text)
+
+        /** 撇号直接去掉，不拆词：let's → lets。用于短语法。 */
+        fun compactHeard(text: String): String =
+            squishHeard(
+                text.lowercase()
+                    .replace('\u2019', '\'')
+                    .replace('\u2018', '\'')
+                    .replace("[unk]", " ")
+                    .replace(Regex("\\bunk\\b"), " ")
+                    .replace("'", ""),
+            )
+
+        fun normalizeHeard(text: String): String {
+            var value = text.lowercase()
+                .replace('\u2019', '\'')
+                .replace('\u2018', '\'')
+                .replace("[unk]", " ")
+                .replace(Regex("\\bunk\\b"), " ")
+            for ((from, to) in APOSTROPHE_CONTRACTIONS.sortedByDescending { it.first.length }) {
+                value = value.replace(from, to)
+            }
+            return squishHeard(value.replace("'", ""))
+        }
+
+        private fun squishHeard(text: String): String =
+            text.replace(Regex("[^a-z0-9\\s]"), " ")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+
+        /** 从多次 partial 里取最有价值的候选，不要把所有 partial 拼成一长串噪声。 */
+        fun heardCandidates(texts: List<String>): List<String> {
+            val cleaned = texts.map { cleanHeard(it) }.filter { it.isNotEmpty() }.distinct()
+            if (cleaned.isEmpty()) return emptyList()
+            val byLen = cleaned.sortedByDescending { it.split(" ").size }
+            val longest = byLen.first()
+            val out = linkedSetOf<String>()
+            out.add(longest)
+            // 再保留词数接近最长句的其他候选（通常是 final 与 partial 之一）
+            val bestCount = longest.split(" ").size
+            cleaned.filter { it.split(" ").size >= bestCount - 1 }.forEach { out.add(it) }
+            return out.toList()
+        }
+
+        private fun wordsSimilar(a: String, b: String): Boolean {
+            if (a == b) return true
+            if (a.length < 3 || b.length < 3) return false
+            // 常见 ASR 混淆
+            val pairs = setOf(
+                "to" to "two", "two" to "to", "too" to "to",
+                "a" to "the", "an" to "a",
+                "hear" to "here", "there" to "their",
+            )
+            if ((a to b) in pairs || (b to a) in pairs) return true
+            if (a.length >= 4 && b.length >= 4) {
+                val dist = editDistance(a, b)
+                if (dist <= 1) return true
+                if (a.length >= 5 && b.length >= 5 && a.take(4) == b.take(4)) return true
+            }
+            return false
+        }
+
+        private fun editDistance(a: String, b: String): Int {
+            if (a == b) return 0
+            if (a.isEmpty()) return b.length
+            if (b.isEmpty()) return a.length
+            val dp = IntArray(b.length + 1) { it }
+            for (i in a.indices) {
+                var prev = dp[0]
+                dp[0] = i + 1
+                for (j in b.indices) {
+                    val tmp = dp[j + 1]
+                    dp[j + 1] = if (a[i] == b[j]) {
+                        prev
+                    } else {
+                        minOf(prev, dp[j], dp[j + 1]) + 1
+                    }
+                    prev = tmp
+                }
+            }
+            return dp[b.length]
+        }
+
+        fun hypothesisMatches(
+            spoken: String,
+            expectedNormalized: String,
+            loose: Boolean = true,
+        ): Boolean {
+            val said = cleanHeard(spoken)
+            val want = cleanHeard(expectedNormalized)
+            if (said.isEmpty() || want.isEmpty()) return false
+            val saidTokens = said.split(" ").filter { it.isNotEmpty() }
+            val wantTokens = want.split(" ").filter { it.isNotEmpty() }
+            if (wantTokens.isEmpty() || saidTokens.isEmpty()) return false
+            for (saidVar in tokenVariants(saidTokens)) {
+                for (wantVar in tokenVariants(wantTokens)) {
+                    if (tokensMatch(saidVar, wantVar, loose)) return true
+                }
+            }
+            return false
+        }
+
+        private fun tokenVariants(tokens: List<String>): List<List<String>> {
+            val expanded = tokens.flatMap { ASR_CONTRACTIONS[it] ?: listOf(it) }
+            return if (expanded == tokens) listOf(tokens) else listOf(tokens, expanded)
+        }
+
+        private fun tokensMatch(saidTokens: List<String>, wantTokens: List<String>, loose: Boolean): Boolean {
+            if (saidTokens == wantTokens) return true
+
+            // 连续子序列命中（允许词近似）
+            for (i in 0..saidTokens.size - wantTokens.size) {
+                if (wantTokens.indices.all { j ->
+                        wordsSimilar(saidTokens[i + j], wantTokens[j])
+                    }
+                ) {
+                    return true
+                }
+            }
+
+            // 按顺序覆盖目标词（允许近似匹配）
+            var wi = 0
+            for (token in saidTokens) {
+                if (wi < wantTokens.size && wordsSimilar(token, wantTokens[wi])) wi += 1
+            }
+            if (wi == wantTokens.size) return true
+            if (!loose || wantTokens.size < 2) return false
+
+            val coverage = wi.toFloat() / wantTokens.size
+            val need = when {
+                wantTokens.size >= 6 -> 0.60f
+                wantTokens.size >= 4 -> 0.65f
+                else -> 0.75f
+            }
+            if (coverage + 1e-6f >= need && wi >= 2) return true
+
+            val wantCore = wantTokens.filter { it !in STOP_WORDS }
+            val saidCore = saidTokens.filter { it !in STOP_WORDS }
+            if (wantCore.size >= 2) {
+                var ci = 0
+                for (token in saidCore) {
+                    if (ci < wantCore.size && wordsSimilar(token, wantCore[ci])) ci += 1
+                }
+                if (ci == wantCore.size) return true
+                val coreNeed = if (wantCore.size >= 4) 0.60f else 0.70f
+                if (ci >= maxOf(2, (wantCore.size * coreNeed).toInt())) return true
+            }
+            return false
+        }
     }
 }

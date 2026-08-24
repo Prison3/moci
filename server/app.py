@@ -536,6 +536,47 @@ def _spoken_token_variants(tokens: list[str]) -> list[list[str]]:
     return [tokens, expanded]
 
 
+def _edit_distance(a: str, b: str) -> int:
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            ins = cur[j - 1] + 1
+            delete = prev[j] + 1
+            sub = prev[j - 1] + (0 if ca == cb else 1)
+            cur.append(min(ins, delete, sub))
+        prev = cur
+    return prev[-1]
+
+
+_ASR_SIMILAR = {
+    ("to", "two"), ("two", "to"), ("too", "to"),
+    ("a", "the"), ("an", "a"),
+    ("hear", "here"), ("there", "their"),
+}
+
+
+def _words_similar(a: str, b: str) -> bool:
+    if a == b:
+        return True
+    if len(a) < 3 or len(b) < 3:
+        return False
+    if (a, b) in _ASR_SIMILAR or (b, a) in _ASR_SIMILAR:
+        return True
+    if len(a) >= 4 and len(b) >= 4:
+        if _edit_distance(a, b) <= 1:
+            return True
+        if len(a) >= 5 and len(b) >= 5 and a[:4] == b[:4]:
+            return True
+    return False
+
+
 def _spoken_tokens_match(said_tokens: list[str], want_tokens: list[str]) -> bool:
     if not said_tokens or not want_tokens:
         return False
@@ -543,17 +584,22 @@ def _spoken_tokens_match(said_tokens: list[str], want_tokens: list[str]) -> bool
         return True
     n = len(want_tokens)
     for i in range(len(said_tokens) - n + 1):
-        if said_tokens[i : i + n] == want_tokens:
+        if all(_words_similar(said_tokens[i + j], want_tokens[j]) for j in range(n)):
             return True
     wi = 0
     for token in said_tokens:
-        if wi < n and token == want_tokens[wi]:
+        if wi < n and _words_similar(token, want_tokens[wi]):
             wi += 1
     if wi == n:
         return True
     if n < 2:
         return False
-    need = 0.70 if n >= 4 else 0.80
+    if n >= 6:
+        need = 0.60
+    elif n >= 4:
+        need = 0.65
+    else:
+        need = 0.75
     if wi >= 2 and (wi / n) + 1e-6 >= need:
         return True
     want_core = [t for t in want_tokens if t not in _SPOKEN_STOP]
@@ -561,11 +607,12 @@ def _spoken_tokens_match(said_tokens: list[str], want_tokens: list[str]) -> bool
     if len(want_core) >= 2:
         ci = 0
         for token in said_core:
-            if ci < len(want_core) and token == want_core[ci]:
+            if ci < len(want_core) and _words_similar(token, want_core[ci]):
                 ci += 1
         if ci == len(want_core):
             return True
-        if ci >= max(2, int(len(want_core) * 0.7)):
+        core_need = 0.60 if len(want_core) >= 4 else 0.70
+        if ci >= max(2, int(len(want_core) * core_need)):
             return True
     return False
 

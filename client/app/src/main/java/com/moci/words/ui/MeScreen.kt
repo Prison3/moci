@@ -50,12 +50,11 @@ import com.moci.words.update.DownloadProgress
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-/** 我的：账号信息、家长任务设置、账号切换、退出登录。 */
+/** 我的：头像设置、家长任务、账号切换等。 */
 @Composable
 fun MeScreen(
     user: User,
     onUserChanged: (User) -> Unit,
-    onLogout: () -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as MociApp
     val context = LocalContext.current
@@ -73,28 +72,6 @@ fun MeScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState()),
         ) {
-        // 账号卡
-        PanelCard {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    UserAvatar(user.avatar, user.username, size = 52.dp)
-                    Column {
-                        Text(user.username, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink)
-                        Spacer(Modifier.height(4.dp))
-                        MociBadge(user.roleLabel, Pine)
-                    }
-                }
-                MociButton("退出登录", kind = BtnKind.Ghost) { onLogout() }
-            }
-        }
-
         AvatarSettingsCard(
             user = user,
             onUserChanged = onUserChanged,
@@ -105,26 +82,9 @@ fun MeScreen(
             state.loading && data == null -> LoadingBox()
             state.error != null && data == null -> ErrorBox(state.error!!, state.reload)
             data != null -> {
-                // 学生：统计 + 家长配置（只读）+ 切换家长
+                // 学生：家长配置（只读）+ 切换家长
                 if (user.isLearner) {
-                    val settingsUser = data.user
-                    data.stats?.let { stats ->
-                        StatGrid(
-                            listOf(
-                                "${stats.total}" to "单词",
-                                "${stats.newCount}" to "新词",
-                                "${stats.learning}" to "了解",
-                                "${stats.mastered}" to "掌握",
-                            )
-                        )
-                        Text(
-                            "统计范围：${settingsUser.wordLevels.joinToString("、") { levelLabelOf(it) }}（家长设置）",
-                            fontSize = 12.sp,
-                            color = InkSoft,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
-                        )
-                    }
-                    LearnerSettingsReadonly(settingsUser)
+                    LearnerSettingsReadonly(data.user)
                     PanelCard {
                         PanelTitle("切换账号")
                         Text(
@@ -431,12 +391,12 @@ private fun AvatarSettingsCard(
     }
 
     PanelCard {
-        PanelTitle("头像")
+        PanelTitle("设置头像")
         AvatarPicker(
             current = user.avatar,
             username = user.username,
             saving = saving,
-            onPick = { emoji ->
+            onConfirm = { emoji ->
                 if (emoji == user.avatar || saving) return@AvatarPicker
                 saving = true
                 scope.launch {

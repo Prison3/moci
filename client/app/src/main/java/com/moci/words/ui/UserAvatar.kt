@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -98,9 +99,20 @@ fun AvatarPicker(
     current: String,
     username: String,
     saving: Boolean,
-    onPick: (String) -> Unit,
+    onConfirm: (String) -> Unit,
     onPickPhoto: () -> Unit,
 ) {
+    val currentEmoji = current.takeIf { !isPhotoAvatar(it) && it.isNotBlank() }
+    var emojiExpanded by remember { mutableStateOf(false) }
+    var pending by remember(current) {
+        mutableStateOf(currentEmoji ?: AVATAR_OPTIONS.first())
+    }
+    LaunchedEffect(current) {
+        pending = currentEmoji ?: AVATAR_OPTIONS.first()
+        emojiExpanded = false
+    }
+    val dirty = pending != current
+
     Column {
         Row(
             Modifier.fillMaxWidth(),
@@ -110,16 +122,16 @@ fun AvatarPicker(
             UserAvatar(current, username, size = 64.dp)
             Column(Modifier.weight(1f)) {
                 Text(
-                    "选一个代表你的头像",
-                    fontSize = 14.sp,
-                    color = InkSoft,
+                    "设置头像",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Ink,
                 )
-                Spacer(Modifier.height(8.dp))
-                MociButton(
-                    if (saving) "保存中…" else "从相册选择照片",
-                    kind = BtnKind.Ghost,
-                    enabled = !saving,
-                    onClick = onPickPhoto,
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "可选 Emoji 或从相册上传照片",
+                    fontSize = 13.sp,
+                    color = InkSoft,
                 )
             }
             if (saving) {
@@ -130,29 +142,90 @@ fun AvatarPicker(
                 )
             }
         }
-        Spacer(Modifier.height(12.dp))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+
+        Spacer(Modifier.height(14.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            AVATAR_OPTIONS.forEach { emoji ->
-                val selected = emoji == current
-                Box(
-                    Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(if (selected) Pine.copy(alpha = 0.16f) else Paper)
-                        .border(
-                            width = if (selected) 2.dp else 1.dp,
-                            color = if (selected) Pine else Line,
-                            shape = CircleShape,
-                        )
-                        .clickable(enabled = !saving) { onPick(emoji) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(emoji, fontSize = 22.sp)
+            AvatarModeButton(
+                label = "Emoji 头像",
+                selected = emojiExpanded,
+                enabled = !saving,
+                modifier = Modifier.weight(1f),
+                onClick = { emojiExpanded = !emojiExpanded },
+            )
+            AvatarModeButton(
+                label = "照片头像",
+                selected = false,
+                enabled = !saving,
+                modifier = Modifier.weight(1f),
+                onClick = onPickPhoto,
+            )
+        }
+
+        if (emojiExpanded) {
+            Spacer(Modifier.height(12.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AVATAR_OPTIONS.forEach { emoji ->
+                    val selected = emoji == pending
+                    Box(
+                        Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(if (selected) Pine.copy(alpha = 0.16f) else Paper)
+                            .border(
+                                width = if (selected) 2.dp else 1.dp,
+                                color = if (selected) Pine else Line,
+                                shape = CircleShape,
+                            )
+                            .clickable(enabled = !saving) { pending = emoji },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(emoji, fontSize = 22.sp)
+                    }
                 }
             }
+            Spacer(Modifier.height(12.dp))
+            MociButton(
+                if (saving) "保存中…" else "确认选择",
+                enabled = dirty && !saving,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { onConfirm(pending) },
+            )
         }
+    }
+}
+
+@Composable
+private fun AvatarModeButton(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) Pine.copy(alpha = 0.12f) else Paper)
+            .border(
+                1.dp,
+                if (selected) Pine else Line,
+                RoundedCornerShape(12.dp),
+            )
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            fontSize = 14.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            color = if (selected) Pine else Ink,
+        )
     }
 }

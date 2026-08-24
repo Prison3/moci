@@ -49,6 +49,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -109,7 +112,11 @@ fun MociTopBar(
     username: String,
     avatar: String = "",
     onUserClick: () -> Unit,
+    menuContent: @Composable (anchorWidth: Dp) -> Unit = {},
 ) {
+    val density = LocalDensity.current
+    var anchorWidth by remember { mutableStateOf(0.dp) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -123,24 +130,28 @@ fun MociTopBar(
                 Text(subtitle, fontSize = 12.sp, color = InkSoft)
             }
         }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(Paper2)
-                .border(1.dp, Line, RoundedCornerShape(999.dp))
-                .clickable(onClick = onUserClick)
-                .padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
-        ) {
-            UserAvatar(avatar, username, size = 32.dp)
-            Text(
-                username,
-                fontSize = 14.sp,
-                color = Pine,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-            )
+        Box {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .onSizeChanged { anchorWidth = with(density) { it.width.toDp() } }
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Paper2)
+                    .border(1.dp, Line, RoundedCornerShape(999.dp))
+                    .clickable(onClick = onUserClick)
+                    .padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+            ) {
+                UserAvatar(avatar, username, size = 32.dp)
+                Text(
+                    username,
+                    fontSize = 14.sp,
+                    color = Pine,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                )
+            }
+            menuContent(anchorWidth)
         }
     }
 }

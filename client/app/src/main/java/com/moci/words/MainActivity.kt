@@ -60,6 +60,7 @@ import com.moci.words.ui.Pine
 import com.moci.words.ui.RankScreen
 import com.moci.words.ui.StudyScreen
 import com.moci.words.ui.UpdateDialog
+import com.moci.words.ui.UserAccountDropdownMenu
 import com.moci.words.ui.UsersScreen
 import com.moci.words.ui.WordsScreen
 import com.moci.words.ui.rememberWordsScreenState
@@ -244,9 +245,11 @@ private fun MainScaffold(
     }
 
     var gameImmersive by remember { mutableStateOf(false) }
+    var showUserMenu by remember { mutableStateOf(false) }
 
     // 学习页之外按返回键先回首页
-    BackHandler(enabled = currentTab != "home" && !gameImmersive) { currentTab = "home" }
+    BackHandler(enabled = currentTab != "home" && !gameImmersive && !showUserMenu) { currentTab = "home" }
+    BackHandler(enabled = showUserMenu) { showUserMenu = false }
 
     Column(Modifier.fillMaxSize()) {
         // 学习页 / 游戏页沉浸式，不显示顶栏
@@ -259,8 +262,26 @@ private fun MainScaffold(
                 },
                 username = user.username,
                 avatar = user.avatar,
-                onUserClick = {
-                    currentTab = if (user.isAdmin) "home" else "me"
+                onUserClick = { showUserMenu = !showUserMenu },
+                menuContent = { anchorWidth ->
+                    UserAccountDropdownMenu(
+                        expanded = showUserMenu,
+                        onDismiss = { showUserMenu = false },
+                        user = user,
+                        anchorWidth = anchorWidth,
+                        onEditAvatar = {
+                            showUserMenu = false
+                            currentTab = "me"
+                        },
+                        onLogout = {
+                            showUserMenu = false
+                            onLogout()
+                        },
+                        onUserChanged = { fresh ->
+                            showUserMenu = false
+                            onUserChanged(fresh)
+                        },
+                    )
                 },
             )
         }
@@ -285,7 +306,6 @@ private fun MainScaffold(
                 "me" -> MeScreen(
                     user = user,
                     onUserChanged = onUserChanged,
-                    onLogout = onLogout,
                 )
                 "words" -> WordsScreen(state = wordsState, wordsKey = wordsKey)
                 "users" -> UsersScreen(onGotoLearning = { uid ->

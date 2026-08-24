@@ -203,7 +203,7 @@ private val POS_ZH = mapOf(
     "conj." to "连词",
     "pron." to "代词",
     "art." to "冠词",
-    "num." to "数词",
+    "num." to "量词",
     "interj." to "感叹词",
 )
 
