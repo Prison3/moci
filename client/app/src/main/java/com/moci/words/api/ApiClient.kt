@@ -3,6 +3,7 @@ package com.moci.words.api
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
+import android.util.Base64
 import android.util.Log
 import com.moci.words.db.ApiCache
 import com.moci.words.db.MociDatabase
@@ -502,6 +503,17 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
     suspend fun saveAvatar(avatar: String): User {
         val json = execute("POST", "/api/v1/profile/avatar", JSONObject().apply {
             put("avatar", avatar)
+        })
+        val user = User.from(json.getJSONObject("user"))
+        cachedUser = user
+        val uid = cacheUserId()
+        if (uid != 0) cache.removePrefix(uid, "profile")
+        return user
+    }
+
+    suspend fun saveAvatarImage(jpegBytes: ByteArray): User {
+        val json = execute("POST", "/api/v1/profile/avatar", JSONObject().apply {
+            put("avatar_image", Base64.encodeToString(jpegBytes, Base64.NO_WRAP))
         })
         val user = User.from(json.getJSONObject("user"))
         cachedUser = user

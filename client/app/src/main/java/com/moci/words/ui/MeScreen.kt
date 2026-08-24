@@ -1,8 +1,14 @@
 package com.moci.words.ui
 
+import android.net.Uri
 import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -58,13 +64,15 @@ fun MeScreen(
     val data = state.data
 
     var selectedChildId by remember(user.id) { mutableIntStateOf(-1) }
+    var avatarCropUri by remember { mutableStateOf<Uri?>(null) }
     LaunchedEffect(user.settingsKey) { state.reload() }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-    ) {
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+        ) {
         // 账号卡
         PanelCard {
             Row(
@@ -87,7 +95,11 @@ fun MeScreen(
             }
         }
 
-        AvatarSettingsCard(user = user, onUserChanged = onUserChanged)
+        AvatarSettingsCard(
+            user = user,
+            onUserChanged = onUserChanged,
+            onPhotoSelected = { avatarCropUri = it },
+        )
 
         when {
             state.loading && data == null -> LoadingBox()
@@ -251,6 +263,34 @@ fun MeScreen(
 
         AppVersionSection()
         Spacer(Modifier.height(16.dp))
+        }
+
+        avatarCropUri?.let { uri ->
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Paper),
+            ) {
+                AvatarCropScreen(
+                    uri = uri,
+                    onDismiss = { avatarCropUri = null },
+                    onConfirm = { bytes ->
+                        avatarCropUri = null
+                        scope.launch {
+                            try {
+                                val fresh = app.api.saveAvatarImage(bytes)
+                                onUserChanged(fresh)
+                                context.toast("头像已更新")
+                            } catch (e: ApiException) {
+                                context.toast(e.message ?: "保存失败")
+                            } catch (_: Exception) {
+                                context.toast("保存失败，请重试")
+                            }
+                        }
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -374,11 +414,21 @@ private fun AppVersionSection() {
 }
 
 @Composable
-private fun AvatarSettingsCard(user: User, onUserChanged: (User) -> Unit) {
+private fun AvatarSettingsCard(
+    user: User,
+    onUserChanged: (User) -> Unit,
+    onPhotoSelected: (Uri) -> Unit,
+) {
     val app = LocalContext.current.applicationContext as MociApp
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var saving by remember { mutableStateOf(false) }
+
+    val pickPhoto = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) onPhotoSelected(uri)
+    }
 
     PanelCard {
         PanelTitle("头像")
@@ -401,6 +451,11 @@ private fun AvatarSettingsCard(user: User, onUserChanged: (User) -> Unit) {
                     }
                     saving = false
                 }
+            },
+            onPickPhoto = {
+                pickPhoto.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                )
             },
         )
     }

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import base64
+import binascii
 import hashlib
 import os
 import re
@@ -294,13 +296,47 @@ GAME_LABELS = {
 }
 
 
+AVATAR_IMAGE_PREFIX = "img:"
+MAX_AVATAR_IMAGE_CHARS = 200_000
+
+
 def avatar_of(user) -> str:
     raw = ""
     try:
         raw = (user["avatar"] or "").strip()
     except (KeyError, IndexError, TypeError):
         pass
-    return raw if raw in AVATAR_OPTIONS else ""
+    if not raw:
+        return ""
+    if raw in AVATAR_OPTIONS:
+        return raw
+    if raw.startswith(AVATAR_IMAGE_PREFIX) and len(raw) <= MAX_AVATAR_IMAGE_CHARS + len(
+        AVATAR_IMAGE_PREFIX
+    ):
+        return raw
+    return ""
+
+
+def normalize_avatar_payload(data: dict) -> tuple[str | None, str | None]:
+    """返回 (avatar, error_message)。"""
+    image_b64 = (data.get("avatar_image") or "").strip()
+    if image_b64:
+        if len(image_b64) > MAX_AVATAR_IMAGE_CHARS:
+            return None, "头像图片过大，请换一张更小的照片。"
+        try:
+            raw = base64.b64decode(image_b64, validate=True)
+        except (binascii.Error, ValueError):
+            return None, "头像图片格式无效。"
+        if not raw:
+            return None, "头像图片为空。"
+        if len(raw) > 150_000:
+            return None, "头像图片过大，请换一张更小的照片。"
+        return AVATAR_IMAGE_PREFIX + base64.b64encode(raw).decode("ascii"), None
+
+    avatar = (data.get("avatar") or "").strip()
+    if avatar and avatar not in AVATAR_OPTIONS:
+        return None, "无效的头像。"
+    return avatar, None
 
 
 def mastery_ranking(viewer_id: int | None = None) -> dict:
@@ -2336,9 +2372,9 @@ def api_profile_avatar():
     if err:
         return err
     data = request.get_json(silent=True) or {}
-    avatar = (data.get("avatar") or "").strip()
-    if avatar and avatar not in AVATAR_OPTIONS:
-        return api_error("无效的头像。", 400, "bad_request")
+    avatar, avatar_err = normalize_avatar_payload(data)
+    if avatar_err:
+        return api_error(avatar_err, 400, "bad_request")
     user = current_user()
     db = get_db()
     db.execute("UPDATE users SET avatar = ? WHERE id = ?", (avatar, user["id"]))
