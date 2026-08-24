@@ -448,11 +448,126 @@ def normalize_phonetic(text: str) -> str:
     return value
 
 
+_APOSTROPHE_CONTRACTIONS = (
+    ("won't", "will not"),
+    ("can't", "can not"),
+    ("don't", "do not"),
+    ("doesn't", "does not"),
+    ("didn't", "did not"),
+    ("isn't", "is not"),
+    ("aren't", "are not"),
+    ("wasn't", "was not"),
+    ("weren't", "were not"),
+    ("haven't", "have not"),
+    ("hasn't", "has not"),
+    ("hadn't", "had not"),
+    ("wouldn't", "would not"),
+    ("shouldn't", "should not"),
+    ("couldn't", "could not"),
+    ("let's", "let us"),
+    ("i'm", "i am"),
+    ("you're", "you are"),
+    ("we're", "we are"),
+    ("they're", "they are"),
+    ("it's", "it is"),
+    ("that's", "that is"),
+    ("what's", "what is"),
+    ("who's", "who is"),
+    ("where's", "where is"),
+    ("how's", "how is"),
+    ("he's", "he is"),
+    ("she's", "she is"),
+    ("there's", "there is"),
+    ("here's", "here is"),
+)
+
+_ASR_CONTRACTIONS = {
+    "wont": ["will", "not"],
+    "cant": ["can", "not"],
+    "dont": ["do", "not"],
+    "doesnt": ["does", "not"],
+    "didnt": ["did", "not"],
+    "isnt": ["is", "not"],
+    "arent": ["are", "not"],
+    "wasnt": ["was", "not"],
+    "werent": ["were", "not"],
+    "havent": ["have", "not"],
+    "hasnt": ["has", "not"],
+    "hadnt": ["had", "not"],
+    "wouldnt": ["would", "not"],
+    "shouldnt": ["should", "not"],
+    "couldnt": ["could", "not"],
+    "lets": ["let", "us"],
+    "im": ["i", "am"],
+    "youre": ["you", "are"],
+    "theyre": ["they", "are"],
+    "thats": ["that", "is"],
+    "whats": ["what", "is"],
+    "whos": ["who", "is"],
+    "wheres": ["where", "is"],
+    "hows": ["how", "is"],
+}
+
+_SPOKEN_STOP = {
+    "a", "an", "the", "to", "of", "in", "on", "at", "for", "and", "or", "is", "are",
+    "am", "be", "was", "were", "do", "does", "did", "have", "has", "had",
+}
+
+
 def normalize_spoken(text: str) -> str:
     value = (text or "").strip().lower()
+    value = value.replace("\u2019", "'").replace("\u2018", "'")
+    value = value.replace("[unk]", " ")
+    value = re.sub(r"\bunk\b", " ", value)
+    for src, dst in sorted(_APOSTROPHE_CONTRACTIONS, key=lambda p: -len(p[0])):
+        value = value.replace(src, dst)
+    value = value.replace("'", "")
     value = re.sub(r"[^a-z0-9\s]", " ", value)
     value = re.sub(r"\s+", " ", value)
     return value.strip()
+
+
+def _spoken_token_variants(tokens: list[str]) -> list[list[str]]:
+    expanded = []
+    for token in tokens:
+        expanded.extend(_ASR_CONTRACTIONS.get(token, [token]))
+    if expanded == tokens:
+        return [tokens]
+    return [tokens, expanded]
+
+
+def _spoken_tokens_match(said_tokens: list[str], want_tokens: list[str]) -> bool:
+    if not said_tokens or not want_tokens:
+        return False
+    if said_tokens == want_tokens:
+        return True
+    n = len(want_tokens)
+    for i in range(len(said_tokens) - n + 1):
+        if said_tokens[i : i + n] == want_tokens:
+            return True
+    wi = 0
+    for token in said_tokens:
+        if wi < n and token == want_tokens[wi]:
+            wi += 1
+    if wi == n:
+        return True
+    if n < 2:
+        return False
+    need = 0.70 if n >= 4 else 0.80
+    if wi >= 2 and (wi / n) + 1e-6 >= need:
+        return True
+    want_core = [t for t in want_tokens if t not in _SPOKEN_STOP]
+    said_core = [t for t in said_tokens if t not in _SPOKEN_STOP]
+    if len(want_core) >= 2:
+        ci = 0
+        for token in said_core:
+            if ci < len(want_core) and token == want_core[ci]:
+                ci += 1
+        if ci == len(want_core):
+            return True
+        if ci >= max(2, int(len(want_core) * 0.7)):
+            return True
+    return False
 
 
 def spoken_matches(spoken: str, term: str) -> bool:
@@ -460,14 +575,14 @@ def spoken_matches(spoken: str, term: str) -> bool:
     said = normalize_spoken(spoken)
     if not want or not said:
         return False
-    if said == want:
-        return True
     said_tokens = said.split()
     want_tokens = want.split()
-    n = len(want_tokens)
-    for i in range(len(said_tokens) - n + 1):
-        if said_tokens[i : i + n] == want_tokens:
-            return True
+    if not said_tokens or not want_tokens:
+        return False
+    for said_var in _spoken_token_variants(said_tokens):
+        for want_var in _spoken_token_variants(want_tokens):
+            if _spoken_tokens_match(said_var, want_var):
+                return True
     return False
 
 
@@ -2274,7 +2389,10 @@ def api_review_submit(word_id: int):
         return api_error("无效的评价。")
     word = (
         get_db()
-        .execute("SELECT id, term, pos, phonetic FROM words WHERE id = ?", (word_id,))
+        .execute(
+            "SELECT id, term, pos, phonetic, phrase, example FROM words WHERE id = ?",
+            (word_id,),
+        )
         .fetchone()
     )
     if not word:
@@ -2285,6 +2403,20 @@ def api_review_submit(word_id: int):
             spoken = payload.get("spoken")
             if not isinstance(spoken, str) or not spoken_matches(spoken, word["term"]):
                 return api_error("请先正确朗读这个单词。", 400, "spoken")
+            phrase = (word["phrase"] or "").strip() if "phrase" in word.keys() else ""
+            if phrase:
+                spoken_phrase = payload.get("spoken_phrase")
+                if not isinstance(spoken_phrase, str) or not spoken_matches(
+                    spoken_phrase, phrase
+                ):
+                    return api_error("请先正确朗读这个短语。", 400, "spoken")
+            example = (word["example"] or "").strip() if "example" in word.keys() else ""
+            if example:
+                spoken_example = payload.get("spoken_example")
+                if not isinstance(spoken_example, str) or not spoken_matches(
+                    spoken_example, example
+                ):
+                    return api_error("请先正确朗读这个例句。", 400, "spoken")
         if checks["spell"]:
             spelling = payload.get("spelling")
             if not isinstance(spelling, str) or not spelling.strip():

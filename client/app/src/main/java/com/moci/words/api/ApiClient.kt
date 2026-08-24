@@ -471,6 +471,8 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
         rating: String,
         spelling: String? = null,
         spoken: String? = null,
+        spokenPhrase: String? = null,
+        spokenExample: String? = null,
         posTags: List<String>? = null,
         phonetic: String? = null,
     ): JSONObject {
@@ -478,6 +480,8 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
             put("rating", rating)
             if (spelling != null) put("spelling", spelling)
             if (spoken != null) put("spoken", spoken)
+            if (spokenPhrase != null) put("spoken_phrase", spokenPhrase)
+            if (spokenExample != null) put("spoken_example", spokenExample)
             if (posTags != null) put("pos_tags", JSONArray(posTags))
             if (phonetic != null) put("phonetic", phonetic)
         })

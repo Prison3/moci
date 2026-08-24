@@ -464,7 +464,7 @@ private fun AvatarSettingsCard(
 @Composable
 private fun LearnerSettingsReadonly(settings: User) {
     val knowItems = buildList {
-        if (settings.knowSpeak) add("正确朗读")
+        if (settings.knowSpeak) add("正确朗读（词/短语/句）")
         if (settings.knowSpell) add("正确默写")
         if (settings.knowPos) add("正确词性")
         if (settings.knowPhonetic) add("正确音标")
@@ -599,7 +599,7 @@ private fun ChildSettingsCard(child: ChildInfo, onSaved: () -> Unit) {
                 onCheckedChange = { knowSpeak = it },
                 colors = CheckboxDefaults.colors(checkedColor = Pine),
             )
-            Text("正确朗读", fontSize = 14.sp, color = Ink)
+            Text("正确朗读（词/短语/句）", fontSize = 13.sp, color = Ink)
             Spacer(Modifier.weight(1f))
             Checkbox(
                 checked = knowSpell,
