@@ -233,12 +233,14 @@ private fun MainScaffold(
         if (user.isAdmin) wordsState.load(scope)
     }
 
+    var gameImmersive by remember { mutableStateOf(false) }
+
     // 学习页之外按返回键先回首页
-    BackHandler(enabled = currentTab != "home") { currentTab = "home" }
+    BackHandler(enabled = currentTab != "home" && !gameImmersive) { currentTab = "home" }
 
     Column(Modifier.fillMaxSize()) {
-        // 学习页沉浸式，不显示顶栏
-        if (currentTab != "study") {
+        // 学习页 / 游戏页沉浸式，不显示顶栏
+        if (currentTab != "study" && !gameImmersive) {
             com.moci.words.ui.MociTopBar(
                 subtitle = when {
                     user.isAdmin -> "管理词库与用户"
@@ -260,11 +262,13 @@ private fun MainScaffold(
                     onStartStudy = { currentTab = "study" },
                     onUserChanged = onUserChanged,
                     onNavigate = { currentTab = it },
+                    onGameImmersiveChange = { gameImmersive = it },
                 )
                 "study" -> StudyScreen(
                     settingsKey = user.settingsKey,
                     wordsKey = wordsKey,
                     onExit = { currentTab = "home" },
+                    onGameImmersiveChange = { gameImmersive = it },
                 )
                 "rank" -> RankScreen(user = user)
                 "me" -> MeScreen(
@@ -283,11 +287,13 @@ private fun MainScaffold(
                 )
             }
         }
-        MociTabBar(
-            tabs = tabs,
-            current = currentTab,
-            onSelect = { currentTab = it },
-        )
+        if (!gameImmersive) {
+            MociTabBar(
+                tabs = tabs,
+                current = currentTab,
+                onSelect = { currentTab = it },
+            )
+        }
     }
 }
 

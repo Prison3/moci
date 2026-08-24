@@ -73,7 +73,12 @@ private fun hideLog(msg: String) {
 
 /** 学习页：闪卡 + 「学会」前的词性 / 朗读 / 音标 / 默写检查。 */
 @Composable
-fun StudyScreen(settingsKey: String, wordsKey: Long, onExit: () -> Unit) {
+fun StudyScreen(
+    settingsKey: String,
+    wordsKey: Long,
+    onExit: () -> Unit,
+    onGameImmersiveChange: (Boolean) -> Unit = {},
+) {
     val app = LocalContext.current.applicationContext as MociApp
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -98,7 +103,10 @@ fun StudyScreen(settingsKey: String, wordsKey: Long, onExit: () -> Unit) {
     var showRewards by remember { mutableStateOf(false) }
 
     if (showRewards) {
-        RewardGamesScreen(onBack = { showRewards = false })
+        RewardGamesScreen(
+            onBack = { showRewards = false },
+            onImmersiveChange = onGameImmersiveChange,
+        )
         return
     }
 

@@ -1,15 +1,26 @@
 package com.moci.words.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -40,6 +52,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -54,7 +76,9 @@ import com.moci.words.RewardQuota
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.sin
 import kotlin.random.Random
 
 private enum class RewardGame {
@@ -67,7 +91,10 @@ private enum class RewardGame {
  * 每天最多玩家长设置的分钟数（默认 30），只在对局进行中计时。
  */
 @Composable
-fun RewardGamesScreen(onBack: () -> Unit) {
+fun RewardGamesScreen(
+    onBack: () -> Unit,
+    onImmersiveChange: (Boolean) -> Unit = {},
+) {
     val context = LocalContext.current
     val app = context.applicationContext as MociApp
     val scope = rememberCoroutineScope()
@@ -134,10 +161,16 @@ fun RewardGamesScreen(onBack: () -> Unit) {
         }
     }
 
+    val inGame = game != RewardGame.Hub
+    DisposableEffect(inGame) {
+        onImmersiveChange(inGame)
+        onDispose { onImmersiveChange(false) }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
-            .background(Paper),
+            .background(if (inGame) Color(0xFF101510) else Paper),
     ) {
         when (game) {
             RewardGame.Hub -> RewardHub(
@@ -187,14 +220,78 @@ fun RewardGamesScreen(onBack: () -> Unit) {
 
 @Composable
 private fun RemainingHint(remaining: Int) {
+    val ok = remaining > 0
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (ok) Pine.copy(alpha = 0.12f) else Cinnabar.copy(alpha = 0.12f))
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            if (ok) "今日还可玩 ${RewardQuota.formatSeconds(remaining)}"
+            else "今日游戏时间已用完，明天再来",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = if (ok) Pine else Cinnabar,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+@Composable
+private fun GameHudChip(text: String, accent: Color = Color.White) {
     Text(
-        if (remaining > 0) "今日还可玩 ${RewardQuota.formatSeconds(remaining)}"
-        else "今日游戏时间已用完，明天再来",
-        fontSize = 13.sp,
-        color = if (remaining > 0) InkSoft else Cinnabar,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth(),
+        text,
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color.Black.copy(alpha = 0.48f))
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = accent,
     )
+}
+
+/** 全屏游戏：悬浮返回 + 角标 HUD，最大化游戏区域。 */
+@Composable
+private fun ImmersiveGameShell(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    hud: @Composable RowScope.() -> Unit = {},
+    bottomBar: @Composable () -> Unit = {},
+    content: @Composable BoxScope.() -> Unit,
+) {
+    Column(modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f),
+        ) {
+            content()
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.42f)),
+            ) {
+                Icon(MociIcons.Back, contentDescription = "返回", tint = Color.White)
+            }
+            Row(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 8.dp, end = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                content = hud,
+            )
+        }
+        bottomBar()
+    }
 }
 
 @Composable
@@ -208,8 +305,22 @@ private fun RewardTopBar(title: String, onBack: () -> Unit) {
         IconButton(onClick = onBack) {
             Icon(MociIcons.Back, contentDescription = "返回", tint = Pine)
         }
-        Text(title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ink)
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink)
     }
+}
+
+@Composable
+private fun StatusChip(text: String, accent: Color = Pine) {
+    Text(
+        text,
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(accent.copy(alpha = 0.12f))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Medium,
+        color = accent,
+    )
 }
 
 @Composable
@@ -232,59 +343,95 @@ private fun RewardHub(
                 fontSize = 14.sp,
                 color = InkSoft,
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
             RemainingHint(remaining)
-            Spacer(Modifier.height(14.dp))
-            GameCard("记忆翻牌", "翻开两张一样的牌，全部配对就过关。", enabled = remaining > 0) {
-                onPick(RewardGame.Memory)
-            }
+            Spacer(Modifier.height(16.dp))
+            GameCard(
+                emoji = "🃏",
+                title = "记忆翻牌",
+                blurb = "翻开两张一样的牌，全部配对就过关。",
+                tint = Color(0xFF5B8DEF),
+                enabled = remaining > 0,
+            ) { onPick(RewardGame.Memory) }
             Spacer(Modifier.height(10.dp))
-            GameCard("点星星", "星星会跳出来，15 秒内点得越多越好。", enabled = remaining > 0) {
-                onPick(RewardGame.Stars)
-            }
+            GameCard(
+                emoji = "⭐",
+                title = "点星星",
+                blurb = "金色星星会跳出来，15 秒内点得越多越好。",
+                tint = Color(0xFFE6A100),
+                enabled = remaining > 0,
+            ) { onPick(RewardGame.Stars) }
             Spacer(Modifier.height(10.dp))
-            GameCard("快反应", "变绿再点，测测你的反应有多快。", enabled = remaining > 0) {
-                onPick(RewardGame.Reflex)
-            }
+            GameCard(
+                emoji = "⚡",
+                title = "快反应",
+                blurb = "变绿再点，测测你的反应有多快。",
+                tint = Color(0xFF2E9B6A),
+                enabled = remaining > 0,
+            ) { onPick(RewardGame.Reflex) }
             Spacer(Modifier.height(10.dp))
-            GameCard("贪吃蛇", "吃豆子变长。方向键或滑动控制，别撞墙和自己。", enabled = remaining > 0) {
-                onPick(RewardGame.Snake)
-            }
+            GameCard(
+                emoji = "🐍",
+                title = "贪吃蛇",
+                blurb = "吃豆子变长。方向键或滑动控制，别撞墙和自己。",
+                tint = Color(0xFF3D8B5A),
+                enabled = remaining > 0,
+            ) { onPick(RewardGame.Snake) }
             Spacer(Modifier.height(10.dp))
-            GameCard("坦克大战", "左右移动、开火，打掉对面坦克，守住 3 条命。", enabled = remaining > 0) {
-                onPick(RewardGame.Tank)
-            }
-            Spacer(Modifier.height(20.dp))
+            GameCard(
+                emoji = "🛡️",
+                title = "坦克大战",
+                blurb = "自动开火，只需按左右移动，守住 3 条命。",
+                tint = Color(0xFF4A7C3F),
+                enabled = remaining > 0,
+            ) { onPick(RewardGame.Tank) }
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
 
 @Composable
 private fun GameCard(
+    emoji: String,
     title: String,
     blurb: String,
+    tint: Color,
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    Column(
+    Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(if (enabled) Paper2 else Paper2.copy(alpha = 0.55f))
-            .border(1.dp, Line, RoundedCornerShape(16.dp))
+            .shadow(if (enabled) 4.dp else 0.dp, RoundedCornerShape(18.dp), clip = false)
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (enabled) Paper2 else Paper2.copy(alpha = 0.6f))
+            .border(1.dp, if (enabled) tint.copy(alpha = 0.28f) else Line, RoundedCornerShape(18.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(16.dp),
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = if (enabled) Ink else InkSoft)
-        Spacer(Modifier.height(6.dp))
-        Text(blurb, fontSize = 13.sp, color = InkSoft)
-        Spacer(Modifier.height(10.dp))
-        Text(
-            if (enabled) "开始玩 →" else "今日时间已用完",
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (enabled) Pine else InkSoft,
-        )
+        Box(
+            Modifier
+                .size(52.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(tint.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(emoji, fontSize = 24.sp)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = if (enabled) Ink else InkSoft)
+            Spacer(Modifier.height(4.dp))
+            Text(blurb, fontSize = 12.sp, color = InkSoft, lineHeight = 17.sp)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (enabled) "开始玩 →" else "今日时间已用完",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (enabled) tint else InkSoft,
+            )
+        }
     }
 }
 
@@ -292,8 +439,11 @@ private fun GameCard(
 private fun PadButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
         modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(Pine)
+            .shadow(2.dp, RoundedCornerShape(14.dp), clip = false)
+            .clip(RoundedCornerShape(14.dp))
+            .background(
+                Brush.verticalGradient(listOf(Pine.copy(alpha = 0.95f), Pine)),
+            )
             .clickable(onClick = onClick)
             .padding(vertical = 14.dp),
         contentAlignment = Alignment.Center,
@@ -369,29 +519,29 @@ private fun MemoryGame(
         locked = false
     }
 
-    Column(Modifier.fillMaxSize()) {
-        RewardTopBar("记忆翻牌", onBack)
-        RemainingHint(remaining)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            when {
-                !playing -> "点开始"
-                won -> "全部配对！用了 $moves 步"
-                else -> "步数 $moves · 点开两张相同的牌"
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            fontSize = 14.sp,
-            color = InkSoft,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(12.dp))
-        Box(Modifier.fillMaxWidth().weight(1f)) {
+    ImmersiveGameShell(
+        onBack = onBack,
+        hud = {
+            GameHudChip(
+                when {
+                    !playing -> "点开始"
+                    won -> "全部配对 · $moves 步"
+                    else -> "步数 $moves"
+                },
+            )
+        },
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(listOf(Color(0xFFE8F0FF), Color(0xFFF5F7FB))),
+                ),
+        ) {
             Column(
                 Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                    .fillMaxSize()
+                    .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 tiles.chunked(4).forEach { row ->
@@ -401,13 +551,33 @@ private fun MemoryGame(
                     ) {
                         row.forEach { tile ->
                             val revealed = playing && (tile.matched || tile.id in open)
+                            val backBrush = Brush.verticalGradient(
+                                listOf(Color(0xFF6B9AF0), Color(0xFF3F6EC8)),
+                            )
                             Box(
                                 Modifier
                                     .weight(1f)
                                     .aspectRatio(1f)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(if (revealed) Paper2 else Pine)
-                                    .border(1.dp, Line, RoundedCornerShape(12.dp))
+                                    .shadow(if (revealed) 2.dp else 0.dp, RoundedCornerShape(14.dp), clip = false)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .then(
+                                        if (revealed) {
+                                            Modifier.background(
+                                                if (tile.matched) Color(0xFFD9F2E4) else Color.White,
+                                            )
+                                        } else {
+                                            Modifier.background(backBrush)
+                                        },
+                                    )
+                                    .border(
+                                        1.5.dp,
+                                        when {
+                                            tile.matched -> Color(0xFF3D9B6A)
+                                            revealed -> Color(0xFFE0E6F0)
+                                            else -> Color(0xFF3F6EC8)
+                                        },
+                                        RoundedCornerShape(14.dp),
+                                    )
                                     .clickable(enabled = playing && !locked && !revealed && !won) {
                                         if (open.size < 2 && tile.id !in open) {
                                             open = open + tile.id
@@ -417,8 +587,8 @@ private fun MemoryGame(
                             ) {
                                 Text(
                                     if (revealed) tile.face else "?",
-                                    fontSize = if (revealed) 28.sp else 22.sp,
-                                    color = if (revealed) Ink else Paper2,
+                                    fontSize = if (revealed) 30.sp else 22.sp,
+                                    color = if (revealed) Ink else Color.White,
                                     fontWeight = FontWeight.Bold,
                                 )
                             }
@@ -430,11 +600,13 @@ private fun MemoryGame(
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(Paper.copy(alpha = if (playing) 0.55f else 0.78f)),
+                        .background(Color.White.copy(alpha = if (playing) 0.55f else 0.78f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         if (won) {
+                            Text("🎉", fontSize = 36.sp)
+                            Spacer(Modifier.height(6.dp))
                             Text(
                                 "全部配对！用了 $moves 步",
                                 fontSize = 16.sp,
@@ -455,12 +627,92 @@ private fun MemoryGame(
                 }
             }
         }
-        Spacer(Modifier.height(16.dp))
     }
 }
 
 // ---------------------------------------------------------------------------
 // 2. 点星星
+
+private val StarGold = Color(0xFFFFC107)
+private val StarGoldDeep = Color(0xFFFF8F00)
+private val StarGoldPale = Color(0xFFFFF8E1)
+private val StarGlow = Color(0xFFFFE082)
+
+/** 金色五角星：外发光 + 轻微呼吸缩放。 */
+@Composable
+private fun PrettyStar(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val pulse = rememberInfiniteTransition(label = "starPulse")
+    val scale by pulse.animateFloat(
+        initialValue = 0.9f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(720),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "starScale",
+    )
+    val glow by pulse.animateFloat(
+        initialValue = 0.28f,
+        targetValue = 0.62f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "starGlow",
+    )
+    Box(
+        modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val outer = size.minDimension * 0.4f
+            val inner = outer * 0.42f
+            drawCircle(
+                color = StarGlow.copy(alpha = glow * 0.55f),
+                radius = outer * 1.45f,
+                center = Offset(cx, cy),
+            )
+            drawCircle(
+                color = StarGold.copy(alpha = glow * 0.35f),
+                radius = outer * 1.15f,
+                center = Offset(cx, cy),
+            )
+            val path = Path()
+            for (i in 0 until 10) {
+                val angle = -Math.PI / 2.0 + i * Math.PI / 5.0
+                val r = if (i % 2 == 0) outer else inner
+                val x = cx + (cos(angle) * r).toFloat()
+                val y = cy + (sin(angle) * r).toFloat()
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            path.close()
+            drawPath(
+                path = path,
+                brush = Brush.radialGradient(
+                    colors = listOf(StarGoldPale, StarGold, StarGoldDeep),
+                    center = Offset(cx, cy - outer * 0.12f),
+                    radius = outer * 1.1f,
+                ),
+            )
+            // 高光点
+            drawCircle(
+                color = Color.White.copy(alpha = 0.85f),
+                radius = outer * 0.12f,
+                center = Offset(cx - outer * 0.12f, cy - outer * 0.18f),
+            )
+        }
+    }
+}
 
 @Composable
 private fun StarsGame(
@@ -513,51 +765,48 @@ private fun StarsGame(
         if (playing) spawn()
     }
 
-    Column(Modifier.fillMaxSize()) {
-        RewardTopBar("点星星", onBack)
-        RemainingHint(remaining)
-        Spacer(Modifier.height(4.dp))
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text("得分 $score", fontSize = 14.sp, color = InkSoft)
-            Text(
-                when {
-                    finished -> "时间到"
-                    playing -> "剩余 ${left}s"
-                    else -> "点开始"
-                },
-                fontSize = 14.sp,
-                color = InkSoft,
-            )
-        }
-        Spacer(Modifier.height(8.dp))
+    ImmersiveGameShell(
+        onBack = onBack,
+        hud = {
+            GameHudChip("得分 $score", accent = StarGold)
+            if (playing) {
+                GameHudChip("剩余 ${left}s", accent = Color(0xFFBBDEFB))
+            } else if (finished) {
+                GameHudChip("时间到", accent = Color(0xFFBBDEFB))
+            }
+        },
+    ) {
         BoxWithConstraints(
             Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Paper2)
-                .border(1.dp, Line, RoundedCornerShape(16.dp)),
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(listOf(Color(0xFF0B1020), Color(0xFF1A2450))),
+                ),
         ) {
-            if (playing) {
+            // 夜空小星点
+            repeat(22) { i ->
                 Box(
                     Modifier
-                        .offset(x = maxWidth * starX, y = maxHeight * starY)
-                        .size(56.dp)
+                        .offset(
+                            x = maxWidth * ((i * 41) % 100) / 100f,
+                            y = maxHeight * ((i * 67) % 100) / 100f,
+                        )
+                        .size(if (i % 3 == 0) 3.dp else 2.dp)
                         .clip(CircleShape)
-                        .background(Pine)
-                        .clickable {
+                        .background(Color.White.copy(alpha = if (i % 2 == 0) 0.55f else 0.28f)),
+                )
+            }
+            if (playing) {
+                key(starId) {
+                    PrettyStar(
+                        modifier = Modifier
+                            .offset(x = maxWidth * starX, y = maxHeight * starY)
+                            .size(68.dp),
+                        onClick = {
                             score += 1
                             spawn()
                         },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("★", fontSize = 26.sp, color = Paper2)
+                    )
                 }
             } else {
                 Column(
@@ -566,11 +815,13 @@ private fun StarsGame(
                         .padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    PrettyStar(modifier = Modifier.size(80.dp), onClick = {})
+                    Spacer(Modifier.height(14.dp))
                     Text(
                         if (finished) "本局得分 $score" else "点中星星得分，越快越好",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Ink,
+                        color = Color.White,
                         textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(12.dp))
@@ -593,7 +844,6 @@ private fun StarsGame(
                 }
             }
         }
-        Spacer(Modifier.height(16.dp))
     }
 }
 
@@ -634,16 +884,18 @@ private fun ReflexGame(
     }
 
     val bg = when (phase) {
-        ReflexPhase.Go -> Pine
-        ReflexPhase.Early -> Cinnabar
-        else -> Paper2
+        ReflexPhase.Go -> Color(0xFF2E9B6A)
+        ReflexPhase.Early -> Color(0xFFC62828)
+        ReflexPhase.Wait -> Color(0xFFFFF3E0)
+        ReflexPhase.Result -> Color(0xFFE8F5E9)
+        else -> Color(0xFFF3F0EA)
     }
     val fg = when (phase) {
-        ReflexPhase.Go, ReflexPhase.Early -> Paper2
+        ReflexPhase.Go, ReflexPhase.Early -> Color.White
         else -> Ink
     }
     val hint = when (phase) {
-        ReflexPhase.Idle -> if (remaining > 0) "点屏幕开始。\n变绿之前不要点。"
+        ReflexPhase.Idle -> if (remaining > 0) "点屏幕开始\n变绿之前不要点"
         else "今日时间已用完"
         ReflexPhase.Wait -> "等一等…\n变绿再点"
         ReflexPhase.Go -> "点！"
@@ -651,28 +903,19 @@ private fun ReflexGame(
         ReflexPhase.Result -> "${ms} 毫秒"
     }
 
-    Column(Modifier.fillMaxSize()) {
-        RewardTopBar("快反应", onBack)
-        RemainingHint(remaining)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            if (best == Int.MAX_VALUE) "还没有最好成绩" else "最好成绩 ${best}ms",
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            fontSize = 14.sp,
-            color = InkSoft,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(8.dp))
+    ImmersiveGameShell(
+        onBack = onBack,
+        hud = {
+            GameHudChip(
+                if (best == Int.MAX_VALUE) "还没有最好成绩" else "最好 ${best}ms",
+                accent = Color(0xFFA5D6A7),
+            )
+        },
+    ) {
         Box(
             Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .fillMaxSize()
                 .background(bg)
-                .border(1.dp, Line, RoundedCornerShape(16.dp))
                 .clickable {
                     when (phase) {
                         ReflexPhase.Idle, ReflexPhase.Result, ReflexPhase.Early -> {
@@ -697,25 +940,53 @@ private fun ReflexGame(
                 },
             contentAlignment = Alignment.Center,
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    hint,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = fg,
-                    textAlign = TextAlign.Center,
-                )
-                if (phase == ReflexPhase.Result || phase == ReflexPhase.Early) {
-                    Spacer(Modifier.height(12.dp))
+            // 外圈装饰环
+            Box(
+                Modifier
+                    .size(220.dp)
+                    .clip(CircleShape)
+                    .border(
+                        6.dp,
+                        when (phase) {
+                            ReflexPhase.Go -> Color.White.copy(alpha = 0.35f)
+                            ReflexPhase.Early -> Color.White.copy(alpha = 0.25f)
+                            else -> Pine.copy(alpha = 0.18f)
+                        },
+                        CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        if (remaining > 0) "再点一次重来" else "今日时间已用完",
-                        fontSize = 13.sp,
-                        color = fg.copy(alpha = 0.85f),
+                        when (phase) {
+                            ReflexPhase.Go -> "⚡"
+                            ReflexPhase.Early -> "!"
+                            ReflexPhase.Result -> "✓"
+                            ReflexPhase.Wait -> "…"
+                            else -> "👆"
+                        },
+                        fontSize = 36.sp,
                     )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        hint,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = fg,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 30.sp,
+                    )
+                    if (phase == ReflexPhase.Result || phase == ReflexPhase.Early) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            if (remaining > 0) "再点一次重来" else "今日时间已用完",
+                            fontSize = 13.sp,
+                            color = fg.copy(alpha = 0.85f),
+                        )
+                    }
                 }
             }
         }
-        Spacer(Modifier.height(16.dp))
     }
 }
 
@@ -727,6 +998,123 @@ private enum class Dir { Up, Down, Left, Right }
 
 private const val SNAKE_W = 12
 private const val SNAKE_H = 16
+
+private val SnakeHeadColor = Color(0xFF5AD68A)
+private val SnakeHeadDark = Color(0xFF2E8B57)
+private val SnakeBodyColor = Color(0xFF3CB371)
+private val SnakeTailColor = Color(0xFF1F5C38)
+private val SnakeBellyColor = Color(0xFF9AE8BC)
+private val SnakeScaleColor = Color(0xFF267A4A)
+private val AppleRed = Color(0xFFE74C3C)
+private val AppleDark = Color(0xFFC0392B)
+private val AppleLeaf = Color(0xFF27AE60)
+
+private fun dirVector(d: Dir): Offset = when (d) {
+    Dir.Up -> Offset(0f, -1f)
+    Dir.Down -> Offset(0f, 1f)
+    Dir.Left -> Offset(-1f, 0f)
+    Dir.Right -> Offset(1f, 0f)
+}
+
+/** 圆角粗线段 + 鳞片 + 蛇头眼睛舌头，食物画成苹果。 */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSnakeScene(
+    snake: List<Cell>,
+    dir: Dir,
+    food: Cell,
+    cellW: Dp,
+    cellH: Dp,
+) {
+    val cw = cellW.toPx()
+    val ch = cellH.toPx()
+    val unit = minOf(cw, ch)
+    fun center(c: Cell) = Offset((c.x + 0.5f) * cw, (c.y + 0.5f) * ch)
+
+    // 苹果
+    val fc = center(food)
+    val appleR = unit * 0.34f
+    drawCircle(AppleDark, appleR * 1.05f, fc + Offset(0f, appleR * 0.12f))
+    drawCircle(AppleRed, appleR, fc)
+    drawCircle(Color.White.copy(alpha = 0.25f), appleR * 0.35f, fc + Offset(-appleR * 0.25f, -appleR * 0.2f))
+    drawLine(
+        Color(0xFF6D4C2E),
+        fc + Offset(0f, -appleR * 0.85f),
+        fc + Offset(0f, -appleR * 1.15f),
+        strokeWidth = unit * 0.06f,
+        cap = StrokeCap.Round,
+    )
+    val leafPath = Path().apply {
+        moveTo(fc.x + unit * 0.04f, fc.y - appleR * 0.9f)
+        quadraticBezierTo(
+            fc.x + unit * 0.28f, fc.y - appleR * 1.35f,
+            fc.x + unit * 0.22f, fc.y - appleR * 0.55f,
+        )
+        close()
+    }
+    drawPath(leafPath, AppleLeaf)
+
+    if (snake.isEmpty()) return
+
+    val baseR = unit * 0.38f
+    val n = snake.size
+
+    // 蛇身：粗圆角线段 + 渐变粗细
+    for (i in n - 1 downTo 1) {
+        val t = i.toFloat() / n.coerceAtLeast(1)
+        val segR = baseR * (0.45f + 0.55f * (1f - t))
+        val color = lerp(SnakeBodyColor, SnakeTailColor, t.coerceIn(0f, 1f))
+        drawLine(
+            color = color,
+            start = center(snake[i]),
+            end = center(snake[i - 1]),
+            strokeWidth = segR * 2f,
+            cap = StrokeCap.Round,
+        )
+    }
+
+    // 每节圆点 + 肚皮 + 鳞片
+    snake.forEachIndexed { i, cell ->
+        val t = i.toFloat() / n.coerceAtLeast(1)
+        val r = baseR * when {
+            i == 0 -> 1.05f
+            i == n - 1 -> 0.38f
+            else -> (0.92f - t * 0.42f).coerceAtLeast(0.42f)
+        }
+        val c = center(cell)
+        val bodyColor = if (i == 0) SnakeHeadColor else lerp(SnakeBodyColor, SnakeTailColor, t)
+        drawCircle(bodyColor, r, c)
+        // 肚皮浅色条
+        val bellyR = r * 0.55f
+        drawCircle(SnakeBellyColor.copy(alpha = 0.55f), bellyR, c + Offset(0f, r * 0.18f))
+        if (i > 0 && i < n - 1) {
+            drawCircle(SnakeScaleColor.copy(alpha = 0.35f), r * 0.22f, c + Offset(-r * 0.2f, -r * 0.15f))
+            drawCircle(SnakeScaleColor.copy(alpha = 0.25f), r * 0.18f, c + Offset(r * 0.15f, r * 0.1f))
+        }
+    }
+
+    // 蛇头：深色描边 + 眼睛 + 分叉舌头
+    val head = center(snake.first())
+    val hr = baseR * 1.08f
+    drawCircle(SnakeHeadDark, hr * 1.06f, head)
+    drawCircle(SnakeHeadColor, hr, head)
+
+    val forward = dirVector(dir)
+    val perp = Offset(-forward.y, forward.x)
+    val eyeSpread = hr * 0.38f
+    val eyeForward = hr * 0.12f
+    listOf(-1f, 1f).forEach { side ->
+        val eyePos = head + forward * eyeForward + perp * (eyeSpread * side)
+        drawCircle(Color.White, hr * 0.22f, eyePos)
+        drawCircle(Color(0xFF1A1A1A), hr * 0.11f, eyePos + forward * (hr * 0.06f))
+    }
+
+    val tongueLen = hr * 0.55f
+    val tongueBase = head + forward * hr * 0.75f
+    val tongueTip = tongueBase + forward * tongueLen
+    val fork = perp * (hr * 0.18f)
+    drawLine(Color(0xFFE74C3C), tongueBase, tongueTip, strokeWidth = hr * 0.1f, cap = StrokeCap.Round)
+    drawLine(Color(0xFFE74C3C), tongueTip, tongueTip + forward * (hr * 0.2f) + fork, strokeWidth = hr * 0.07f, cap = StrokeCap.Round)
+    drawLine(Color(0xFFE74C3C), tongueTip, tongueTip + forward * (hr * 0.2f) - fork, strokeWidth = hr * 0.07f, cap = StrokeCap.Round)
+}
 
 @Composable
 private fun SnakeGame(
@@ -825,33 +1213,40 @@ private fun SnakeGame(
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        RewardTopBar("贪吃蛇", onBack)
-        RemainingHint(remaining)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            when {
-                over -> "撞到了！得分 $score"
-                playing -> "得分 $score · 滑动或按方向键"
-                else -> "点开始"
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            fontSize = 14.sp,
-            color = InkSoft,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(8.dp))
+    ImmersiveGameShell(
+        onBack = onBack,
+        hud = {
+            GameHudChip(
+                when {
+                    over -> "得分 $score"
+                    playing -> "得分 $score"
+                    else -> "滑动或方向键"
+                },
+                accent = Color(0xFF81C784),
+            )
+        },
+        bottomBar = {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF152018))
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                PadButton("↑", Modifier.width(72.dp)) { turn(Dir.Up) }
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    PadButton("←", Modifier.width(72.dp)) { turn(Dir.Left) }
+                    PadButton("↓", Modifier.width(72.dp)) { turn(Dir.Down) }
+                    PadButton("→", Modifier.width(72.dp)) { turn(Dir.Right) }
+                }
+            }
+        },
+    ) {
         BoxWithConstraints(
             Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Paper2)
-                .border(1.dp, Line, RoundedCornerShape(12.dp))
-                .padding(4.dp)
+                .fillMaxSize()
+                .background(Color(0xFF152018))
                 .pointerInput(playing) {
                     if (!playing) return@pointerInput
                     detectDragGestures { _, drag ->
@@ -867,33 +1262,27 @@ private fun SnakeGame(
         ) {
             val cellW = maxWidth / SNAKE_W
             val cellH = maxHeight / SNAKE_H
+            // 棋盘格底纹
             for (y in 0 until SNAKE_H) {
                 for (x in 0 until SNAKE_W) {
-                    val c = Cell(x, y)
-                    val isHead = snake.firstOrNull() == c
-                    val isBody = c in snake
-                    val isFood = c == food
-                    val color = when {
-                        isHead -> Pine
-                        isBody -> Pine2
-                        isFood -> Cinnabar
-                        else -> Paper
+                    if ((x + y) % 2 == 0) {
+                        Box(
+                            Modifier
+                                .offset(x = cellW * x, y = cellH * y)
+                                .size(cellW, cellH)
+                                .background(Color(0xFF1A2A1E)),
+                        )
                     }
-                    Box(
-                        Modifier
-                            .offset(x = cellW * x, y = cellH * y)
-                            .size(cellW, cellH)
-                            .padding(1.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(color),
-                    )
                 }
+            }
+            Canvas(Modifier.fillMaxSize()) {
+                drawSnakeScene(snake, dir, food, cellW, cellH)
             }
             if (!playing) {
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(Paper.copy(alpha = 0.78f)),
+                        .background(Color(0xFF152018).copy(alpha = 0.82f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (remaining > 0) {
@@ -907,27 +1296,113 @@ private fun SnakeGame(
                 }
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            PadButton("↑", Modifier.width(76.dp)) { turn(Dir.Up) }
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PadButton("←", Modifier.width(76.dp)) { turn(Dir.Left) }
-                PadButton("↓", Modifier.width(76.dp)) { turn(Dir.Down) }
-                PadButton("→", Modifier.width(76.dp)) { turn(Dir.Right) }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
     }
 }
 
 // ---------------------------------------------------------------------------
 // 5. 坦克大战
+
+private val TankGreen = Color(0xFF3D6B3A)
+private val TankGreenDark = Color(0xFF2A4A28)
+private val TankGreenLight = Color(0xFF5A9155)
+private val TankRed = Color(0xFFB54A2E)
+private val TankRedDark = Color(0xFF7A2E1C)
+private val TankRedLight = Color(0xFFD46A48)
+private val TankTrack = Color(0xFF2B2B2B)
+private val TankTrackLight = Color(0xFF555555)
+
+/** 经典坦克大战风格：履带 + 车身 + 炮塔 + 炮管。 */
+@Composable
+private fun ClassicTank(
+    facingUp: Boolean,
+    modifier: Modifier = Modifier,
+    body: Color = if (facingUp) TankGreen else TankRed,
+    bodyDark: Color = if (facingUp) TankGreenDark else TankRedDark,
+    bodyLight: Color = if (facingUp) TankGreenLight else TankRedLight,
+) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val trackW = w * 0.2f
+        // 履带
+        drawRect(TankTrack, Offset(0f, h * 0.12f), Size(trackW, h * 0.76f))
+        drawRect(TankTrack, Offset(w - trackW, h * 0.12f), Size(trackW, h * 0.76f))
+        // 履带齿纹
+        val teeth = 5
+        val toothH = h * 0.76f / teeth
+        repeat(teeth) { i ->
+            val y = h * 0.12f + i * toothH + toothH * 0.15f
+            drawRect(TankTrackLight, Offset(2f, y), Size(trackW - 4f, toothH * 0.35f))
+            drawRect(TankTrackLight, Offset(w - trackW + 2f, y), Size(trackW - 4f, toothH * 0.35f))
+        }
+        // 车身
+        val bodyL = trackW * 0.55f
+        val bodyW = w - bodyL * 2
+        drawRect(bodyDark, Offset(bodyL, h * 0.22f), Size(bodyW, h * 0.56f))
+        drawRect(body, Offset(bodyL + 2f, h * 0.24f), Size(bodyW - 4f, h * 0.5f))
+        // 炮塔
+        val tw = w * 0.4f
+        val th = h * 0.26f
+        val tx = (w - tw) / 2f
+        val ty = h * 0.34f
+        drawRect(bodyDark, Offset(tx, ty), Size(tw, th))
+        drawRect(bodyLight, Offset(tx + 2f, ty + 2f), Size(tw - 4f, th - 4f))
+        // 炮管
+        val bw = w * 0.14f
+        val bh = h * 0.36f
+        val bx = (w - bw) / 2f
+        if (facingUp) {
+            drawRect(bodyDark, Offset(bx, h * 0.02f), Size(bw, bh))
+            drawRect(body, Offset(bx + 1.5f, h * 0.02f), Size(bw - 3f, bh * 0.85f))
+        } else {
+            drawRect(bodyDark, Offset(bx, h * 0.58f), Size(bw, bh))
+            drawRect(body, Offset(bx + 1.5f, h * 0.62f), Size(bw - 3f, bh * 0.85f))
+        }
+    }
+}
+
+/** 按住持续触发（左右移动）。 */
+@Composable
+private fun HoldPadButton(
+    label: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onHold: () -> Unit,
+) {
+    var holding by remember { mutableStateOf(false) }
+    LaunchedEffect(holding, enabled) {
+        if (!holding || !enabled) return@LaunchedEffect
+        while (holding && enabled) {
+            onHold()
+            delay(45)
+        }
+    }
+    Box(
+        modifier
+            .shadow(if (enabled) 3.dp else 0.dp, RoundedCornerShape(16.dp), clip = false)
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                if (enabled) Brush.verticalGradient(listOf(Color(0xFF4A8A45), TankGreenDark))
+                else Brush.verticalGradient(listOf(Color(0xFF666666), Color(0xFF444444))),
+            )
+            .pointerInput(enabled) {
+                if (!enabled) return@pointerInput
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    holding = true
+                    try {
+                        waitForUpOrCancellation()
+                    } finally {
+                        holding = false
+                    }
+                }
+            }
+            .padding(vertical = 20.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+    }
+}
 
 private data class Bullet(
     val x: Float,
@@ -958,7 +1433,6 @@ private fun TankGame(
     var playing by remember { mutableStateOf(false) }
     var over by remember { mutableStateOf(false) }
     var tick by remember { mutableIntStateOf(0) }
-    var lastShotAt by remember { mutableLongStateOf(0L) }
 
     fun reset() {
         if (!tryStart()) return
@@ -973,7 +1447,6 @@ private fun TankGame(
         lives = 3
         over = false
         tick = 0
-        lastShotAt = 0L
         playing = true
         onPlayingChanged(true)
     }
@@ -986,20 +1459,17 @@ private fun TankGame(
         }
     }
 
-    fun fire() {
-        if (!playing || over) return
-        val now = System.currentTimeMillis()
-        if (now - lastShotAt < 280) return
-        lastShotAt = now
-        bullets = bullets + Bullet(playerX, 0.84f, fromPlayer = true)
-    }
-
     LaunchedEffect(playing) {
         if (!playing) return@LaunchedEffect
         while (playing) {
             delay(40)
             if (!playing) break
             tick += 1
+
+            // 玩家自动开火
+            if (tick % 7 == 0) {
+                bullets = bullets + Bullet(playerX, 0.84f, fromPlayer = true)
+            }
 
             // 子弹
             bullets = bullets
@@ -1087,32 +1557,41 @@ private fun TankGame(
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        RewardTopBar("坦克大战", onBack)
-        RemainingHint(remaining)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            when {
-                over -> "战斗结束，得分 $score"
-                playing -> "得分 $score · 生命 ${"♥".repeat(lives.coerceAtLeast(0))}"
-                else -> "点开始 · 左右移动，中间开火"
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            fontSize = 14.sp,
-            color = InkSoft,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(8.dp))
+    ImmersiveGameShell(
+        onBack = onBack,
+        hud = {
+            GameHudChip(
+                when {
+                    over -> "得分 $score"
+                    playing -> "得分 $score · ${"♥".repeat(lives.coerceAtLeast(0))}"
+                    else -> "自动开火"
+                },
+                accent = Color(0xFFA5D6A7),
+            )
+        },
+        bottomBar = {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF121610))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                HoldPadButton("←", Modifier.weight(1f), enabled = playing) {
+                    playerX = (playerX - 0.045f).coerceIn(0.08f, 0.92f)
+                }
+                HoldPadButton("→", Modifier.weight(1f), enabled = playing) {
+                    playerX = (playerX + 0.045f).coerceIn(0.08f, 0.92f)
+                }
+            }
+        },
+    ) {
         BoxWithConstraints(
             Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Paper2)
-                .border(1.dp, Line, RoundedCornerShape(12.dp))
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(listOf(Color(0xFF121610), Color(0xFF1E2A18))),
+                )
                 .pointerInput(playing) {
                     if (!playing) return@pointerInput
                     detectDragGestures { _, drag ->
@@ -1123,8 +1602,7 @@ private fun TankGame(
             val w = maxWidth
             val h = maxHeight
 
-            // 简易星空背景点
-            repeat(12) { i ->
+            repeat(14) { i ->
                 Box(
                     Modifier
                         .offset(
@@ -1133,48 +1611,40 @@ private fun TankGame(
                         )
                         .size(3.dp)
                         .clip(CircleShape)
-                        .background(Line),
+                        .background(Color(0xFF6B7A62).copy(alpha = 0.7f)),
                 )
             }
 
             enemies.forEach { e ->
-                Box(
-                    Modifier
-                        .offset(x = w * e.x - 16.dp, y = h * e.y)
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Cinnabar),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("▼", fontSize = 14.sp, color = Paper2)
-                }
+                ClassicTank(
+                    facingUp = false,
+                    modifier = Modifier
+                        .offset(x = w * e.x - 18.dp, y = h * e.y)
+                        .size(36.dp),
+                )
             }
             bullets.forEach { b ->
                 Box(
                     Modifier
-                        .offset(x = w * b.x - 3.dp, y = h * b.y)
-                        .size(6.dp, 14.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(if (b.fromPlayer) Pine else Warn),
+                        .offset(x = w * b.x - 2.dp, y = h * b.y)
+                        .size(4.dp, 10.dp)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(if (b.fromPlayer) Color(0xFFE8E070) else Color(0xFFFF8A65)),
                 )
             }
             if (playing || over) {
-                Box(
-                    Modifier
-                        .offset(x = w * playerX - 18.dp, y = h * 0.88f)
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Pine),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("▲", fontSize = 16.sp, color = Paper2)
-                }
+                ClassicTank(
+                    facingUp = true,
+                    modifier = Modifier
+                        .offset(x = w * playerX - 20.dp, y = h * 0.86f)
+                        .size(40.dp),
+                )
             }
             if (!playing) {
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .background(Paper.copy(alpha = 0.78f)),
+                        .background(Color(0xFF121610).copy(alpha = 0.78f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (remaining > 0) {
@@ -1188,21 +1658,5 @@ private fun TankGame(
                 }
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            PadButton("←", Modifier.weight(1f)) {
-                if (playing) playerX = (playerX - 0.07f).coerceIn(0.08f, 0.92f)
-            }
-            PadButton("开火", Modifier.weight(1.3f)) { fire() }
-            PadButton("→", Modifier.weight(1f)) {
-                if (playing) playerX = (playerX + 0.07f).coerceIn(0.08f, 0.92f)
-            }
-        }
-        Spacer(Modifier.height(8.dp))
     }
 }

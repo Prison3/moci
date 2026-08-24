@@ -48,11 +48,12 @@ fun HomeScreen(
     onStartStudy: () -> Unit,
     onUserChanged: (User) -> Unit,
     onNavigate: (String) -> Unit = {},
+    onGameImmersiveChange: (Boolean) -> Unit = {},
 ) {
     when {
         user.isAdmin -> AdminHomeScreen(wordsKey, onNavigate)
         user.isParent -> ParentHomeScreen(wordsKey)
-        else -> LearnerHomeScreen(settingsKey, wordsKey, onStartStudy)
+        else -> LearnerHomeScreen(settingsKey, wordsKey, onStartStudy, onGameImmersiveChange)
     }
 }
 
@@ -60,7 +61,12 @@ fun HomeScreen(
 // 学生首页
 
 @Composable
-private fun LearnerHomeScreen(settingsKey: String, wordsKey: Long, onStartStudy: () -> Unit) {
+private fun LearnerHomeScreen(
+    settingsKey: String,
+    wordsKey: Long,
+    onStartStudy: () -> Unit,
+    onGameImmersiveChange: (Boolean) -> Unit = {},
+) {
     val app = LocalContext.current.applicationContext as MociApp
     val state = rememberData { homeLearner() }
     LaunchedEffect(settingsKey, wordsKey) { state.reload() }
@@ -72,7 +78,10 @@ private fun LearnerHomeScreen(settingsKey: String, wordsKey: Long, onStartStudy:
     val scope = rememberCoroutineScope()
 
     if (showRewards) {
-        RewardGamesScreen(onBack = { showRewards = false })
+        RewardGamesScreen(
+            onBack = { showRewards = false },
+            onImmersiveChange = onGameImmersiveChange,
+        )
         return
     }
 
