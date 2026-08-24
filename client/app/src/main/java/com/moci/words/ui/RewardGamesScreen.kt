@@ -349,7 +349,7 @@ private fun RewardHub(
             GameCard(
                 emoji = "🃏",
                 title = "记忆翻牌",
-                blurb = "翻开两张一样的牌，全部配对就过关。",
+                blurb = "翻开两张一样的牌，12 种水果全部配对就过关。",
                 tint = Color(0xFF5B8DEF),
                 enabled = remaining > 0,
             ) { onPick(RewardGame.Memory) }
@@ -457,7 +457,11 @@ private fun PadButton(label: String, modifier: Modifier = Modifier, onClick: () 
 
 private data class MemoryTile(val id: Int, val face: String, val matched: Boolean = false)
 
-private val MEMORY_FACES = listOf("🍎", "🍋", "🍇", "🍓", "🍑", "🥝")
+private val MEMORY_FACES = listOf(
+    "🍎", "🍋", "🍇", "🍓", "🍑", "🥝",
+    "🍉", "🍊", "🍌", "🍒", "🍍", "🥭",
+)
+private const val MEMORY_COLS = 4
 
 @Composable
 private fun MemoryGame(
@@ -535,62 +539,88 @@ private fun MemoryGame(
             Modifier
                 .fillMaxSize()
                 .background(
-                    Brush.verticalGradient(listOf(Color(0xFFE8F0FF), Color(0xFFF5F7FB))),
+                    Brush.verticalGradient(listOf(Color(0xFFF7F1E8), Color(0xFFEEE6DA))),
                 ),
         ) {
-            Column(
+            BoxWithConstraints(
                 Modifier
                     .fillMaxSize()
-                    .padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = 16.dp, vertical = 72.dp),
             ) {
-                tiles.chunked(4).forEach { row ->
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        row.forEach { tile ->
-                            val revealed = playing && (tile.matched || tile.id in open)
-                            val backBrush = Brush.verticalGradient(
-                                listOf(Color(0xFF6B9AF0), Color(0xFF3F6EC8)),
-                            )
-                            Box(
-                                Modifier
-                                    .weight(1f)
-                                    .aspectRatio(1f)
-                                    .shadow(if (revealed) 2.dp else 0.dp, RoundedCornerShape(14.dp), clip = false)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .then(
-                                        if (revealed) {
-                                            Modifier.background(
-                                                if (tile.matched) Color(0xFFD9F2E4) else Color.White,
-                                            )
-                                        } else {
-                                            Modifier.background(backBrush)
-                                        },
-                                    )
-                                    .border(
-                                        1.5.dp,
-                                        when {
-                                            tile.matched -> Color(0xFF3D9B6A)
-                                            revealed -> Color(0xFFE0E6F0)
-                                            else -> Color(0xFF3F6EC8)
-                                        },
-                                        RoundedCornerShape(14.dp),
-                                    )
-                                    .clickable(enabled = playing && !locked && !revealed && !won) {
-                                        if (open.size < 2 && tile.id !in open) {
-                                            open = open + tile.id
-                                        }
+                val rows = (tiles.size + MEMORY_COLS - 1) / MEMORY_COLS
+                val gap = 8.dp
+                val cellW = (maxWidth - gap * (MEMORY_COLS - 1)) / MEMORY_COLS
+                val cellH = (maxHeight - gap * (rows - 1)) / rows
+                val emojiSp = (minOf(cellW, cellH).value * 0.42f).sp
+                val markSp = (minOf(cellW, cellH).value * 0.28f).sp
+                val cardRadius = 14.dp
+
+                tiles.chunked(MEMORY_COLS).forEachIndexed { rowIdx, row ->
+                    row.forEachIndexed { colIdx, tile ->
+                        val revealed = playing && (tile.matched || tile.id in open)
+                        Box(
+                            Modifier
+                                .offset(x = (cellW + gap) * colIdx, y = (cellH + gap) * rowIdx)
+                                .size(cellW, cellH)
+                                .shadow(3.dp, RoundedCornerShape(cardRadius), clip = false)
+                                .clip(RoundedCornerShape(cardRadius))
+                                .then(
+                                    when {
+                                        tile.matched && revealed -> Modifier.background(Color(0xFFE4F3EA))
+                                        revealed -> Modifier.background(Color(0xFFFFFBF5))
+                                        else -> Modifier.background(
+                                            Brush.linearGradient(
+                                                listOf(Color(0xFFE8A07A), Color(0xFFD4785A)),
+                                            ),
+                                        )
                                     },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    if (revealed) tile.face else "?",
-                                    fontSize = if (revealed) 30.sp else 22.sp,
-                                    color = if (revealed) Ink else Color.White,
-                                    fontWeight = FontWeight.Bold,
                                 )
+                                .border(
+                                    1.5.dp,
+                                    when {
+                                        tile.matched -> Color(0xFF5FA87A)
+                                        revealed -> Color(0xFFE8DFD2)
+                                        else -> Color(0xFFC46848)
+                                    },
+                                    RoundedCornerShape(cardRadius),
+                                )
+                                .clickable(enabled = playing && !locked && !revealed && !won) {
+                                    if (open.size < 2 && tile.id !in open) {
+                                        open = open + tile.id
+                                    }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (revealed) {
+                                Text(
+                                    tile.face,
+                                    fontSize = emojiSp,
+                                    color = Ink,
+                                )
+                            } else {
+                                // 暖色牌背：菱形纹 + 小圆点
+                                Box(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .padding(cellW * 0.14f),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .fillMaxSize()
+                                            .border(
+                                                1.5.dp,
+                                                Color.White.copy(alpha = 0.35f),
+                                                RoundedCornerShape(10.dp),
+                                            ),
+                                    )
+                                    Text(
+                                        "✦",
+                                        fontSize = markSp,
+                                        color = Color.White.copy(alpha = 0.9f),
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
                             }
                         }
                     }
