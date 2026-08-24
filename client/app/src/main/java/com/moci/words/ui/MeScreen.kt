@@ -39,6 +39,7 @@ import com.moci.words.api.User
 import com.moci.words.api.WORD_LEVELS
 import com.moci.words.api.levelLabelOf
 import com.moci.words.update.AppUpdater
+import com.moci.words.update.DownloadProgress
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -245,6 +246,7 @@ private fun AppVersionSection() {
     var releaseInfo by remember { mutableStateOf<AppReleaseInfo?>(null) }
     var checking by remember { mutableStateOf(false) }
     var updating by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableStateOf<DownloadProgress?>(null) }
     var checkError by remember { mutableStateOf<String?>(null) }
     var showUpdateDialog by remember { mutableStateOf(false) }
 
@@ -297,7 +299,11 @@ private fun AppVersionSection() {
             ) { checkUpdate() }
             if (hasUpdate) {
                 MociButton(
-                    if (updating) "下载中…" else "立即更新",
+                    when {
+                        updating && downloadProgress?.percent != null -> "下载中 ${downloadProgress!!.percent}%"
+                        updating -> "下载中…"
+                        else -> "立即更新"
+                    },
                     modifier = Modifier.weight(1f),
                     enabled = !checking && !updating,
                 ) { showUpdateDialog = true }
@@ -309,6 +315,7 @@ private fun AppVersionSection() {
         UpdateDialog(
             info = info,
             busy = updating,
+            progress = downloadProgress,
             onDismiss = { if (!updating) showUpdateDialog = false },
             onUpdate = {
                 if (!AppUpdater.canInstallPackages(context)) {
@@ -317,15 +324,22 @@ private fun AppVersionSection() {
                     return@UpdateDialog
                 }
                 updating = true
+                downloadProgress = null
                 scope.launch {
                     try {
-                        val apk = AppUpdater.downloadApk(context, info.downloadUrl)
+                        val apk = AppUpdater.downloadApk(
+                            context = context,
+                            url = info.downloadUrl,
+                            expectedBytes = info.sizeBytes,
+                            onProgress = { downloadProgress = it },
+                        )
                         AppUpdater.installApk(context, apk)
                         showUpdateDialog = false
                     } catch (e: Exception) {
                         context.toast(e.message ?: "更新失败，请稍后重试。")
                     } finally {
                         updating = false
+                        downloadProgress = null
                     }
                 }
             },

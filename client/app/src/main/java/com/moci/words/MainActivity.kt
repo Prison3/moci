@@ -45,6 +45,7 @@ import com.moci.words.api.AppReleaseInfo
 import com.moci.words.api.SessionListener
 import com.moci.words.api.User
 import com.moci.words.update.AppUpdater
+import com.moci.words.update.DownloadProgress
 import com.moci.words.ui.AuthScreen
 import com.moci.words.ui.HomeScreen
 import com.moci.words.ui.InkSoft
@@ -79,6 +80,7 @@ class MainActivity : ComponentActivity() {
                 var booting by remember { mutableStateOf(true) }
                 var updateInfo by remember { mutableStateOf<AppReleaseInfo?>(null) }
                 var updating by remember { mutableStateOf(false) }
+                var downloadProgress by remember { mutableStateOf<DownloadProgress?>(null) }
                 val context = LocalContext.current
                 val scope = rememberCoroutineScope()
                 val notifyPermission = rememberLauncherForActivityResult(
@@ -132,6 +134,7 @@ class MainActivity : ComponentActivity() {
                     UpdateDialog(
                         info = info,
                         busy = updating,
+                        progress = downloadProgress,
                         onDismiss = { if (!updating) updateInfo = null },
                         onUpdate = {
                             if (!AppUpdater.canInstallPackages(context)) {
@@ -140,15 +143,22 @@ class MainActivity : ComponentActivity() {
                                 return@UpdateDialog
                             }
                             updating = true
+                            downloadProgress = null
                             scope.launch {
                                 try {
-                                    val apk = AppUpdater.downloadApk(context, info.downloadUrl)
+                                    val apk = AppUpdater.downloadApk(
+                                        context = context,
+                                        url = info.downloadUrl,
+                                        expectedBytes = info.sizeBytes,
+                                        onProgress = { downloadProgress = it },
+                                    )
                                     AppUpdater.installApk(context, apk)
                                     updateInfo = null
                                 } catch (e: Exception) {
                                     toast(e.message ?: "更新失败，请稍后重试。")
                                 } finally {
                                     updating = false
+                                    downloadProgress = null
                                 }
                             }
                         },

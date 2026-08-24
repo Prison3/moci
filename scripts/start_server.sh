@@ -126,10 +126,21 @@ cmd_start() {
   echo "已启动 (pid $(cat "$PID_FILE"))，日志: $SERVER/instance/gunicorn.log"
 }
 
+kill_stale_workers() {
+  # Supervisor 有时只停 master，worker 会残留并占用 gRPC 端口导致 App 登录超时
+  local pattern="${SERVER}/.venv/bin/gunicorn"
+  if pgrep -f "$pattern" >/dev/null 2>&1; then
+    echo "清理残留的 gunicorn worker ..."
+    pkill -f "$pattern" 2>/dev/null || true
+    sleep 1
+  fi
+}
+
 cmd_stop() {
   if has_supervisor; then
     echo "通过 Supervisor 停止 $SUPERVISOR_NAME ..."
     supervisorctl stop "$SUPERVISOR_NAME"
+    kill_stale_workers
     return
   fi
   if [[ ! -f "$PID_FILE" ]]; then
@@ -148,6 +159,7 @@ cmd_stop() {
 
 cmd_restart() {
   cmd_stop
+  kill_stale_workers
   sleep 1
   cmd_start
 }
@@ -181,6 +193,8 @@ autostart=true
 autorestart=true
 startsecs=3
 stopwaitsecs=10
+stopasgroup=true
+killasgroup=true
 stdout_logfile=/var/log/supervisor/${SUPERVISOR_NAME}.stdout.log
 stderr_logfile=/var/log/supervisor/${SUPERVISOR_NAME}.stderr.log
 stdout_logfile_maxbytes=10MB
