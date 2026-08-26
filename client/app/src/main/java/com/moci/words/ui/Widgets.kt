@@ -197,13 +197,15 @@ private val ChildAccents = listOf(NavHome, NavStudy, NavRank, NavMe, NavWords, N
 
 fun childAccentAt(index: Int): Color = ChildAccents[index.mod(ChildAccents.size)]
 
-/** 家长选孩子：整行卡片，避免多人挤在一行把名字竖排。 */
+/** 家长选配置对象：整行卡片，避免多人挤在一行把名字竖排。 */
 @Composable
 fun ChildSelectRow(
     child: ChildInfo,
     selected: Boolean,
     accent: Color,
     onClick: () -> Unit,
+    title: String = child.user.username,
+    subtitle: String? = null,
 ) {
     val shape = RoundedCornerShape(14.dp)
     Row(
@@ -220,7 +222,7 @@ fun ChildSelectRow(
         UserAvatar(child.user.avatar, child.user.username, size = 44.dp)
         Column(Modifier.weight(1f)) {
             Text(
-                child.user.username,
+                title,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = if (selected) accent else Ink,
@@ -229,7 +231,7 @@ fun ChildSelectRow(
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                "今日 ${child.task.done} / ${child.task.quota}",
+                subtitle ?: "今日 ${child.task.done} / ${child.task.quota}",
                 fontSize = 13.sp,
                 color = InkSoft,
                 maxLines = 1,

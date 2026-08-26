@@ -56,7 +56,7 @@ import com.moci.words.api.User
 import com.moci.words.update.AppUpdater
 import com.moci.words.update.DownloadProgress
 import com.moci.words.ui.AuthScreen
-import com.moci.words.ui.ChildrenManageScreen
+import com.moci.words.ui.ParentConfigScreen
 import com.moci.words.ui.HomeScreen
 import com.moci.words.ui.LearningScreen
 import com.moci.words.ui.Line
@@ -227,7 +227,7 @@ private fun tabsFor(user: User): List<TabSpec> = when {
         TabSpec("home", "首页", MociIcons.Home, NavHome),
         TabSpec("study", "学习", MociIcons.Study, NavStudy),
         TabSpec("rank", "排行", MociIcons.Trophy, NavRank),
-        TabSpec("kids", "孩子", MociIcons.Users, NavUsers),
+        TabSpec("config", "配置", MociIcons.Settings, NavUsers),
         TabSpec("me", "我的", MociIcons.Person, NavMe),
     )
     else -> listOf(
@@ -276,7 +276,7 @@ private fun MainScaffold(
         if (currentTab != "study" && !gameImmersive) {
             com.moci.words.ui.MociTopBar(
                 subtitle = when {
-                    currentTab == "kids" -> "设置任务，或切换到孩子"
+                    currentTab == "config" -> "设置自己和孩子的学习任务"
                     user.isAdmin -> "管理词库与用户"
                     user.isParent -> "自己学，也看看孩子"
                     else -> "今天也把几个词留下来"
@@ -324,7 +324,7 @@ private fun MainScaffold(
                     onGameImmersiveChange = { gameImmersive = it },
                 )
                 "rank" -> RankScreen(user = user)
-                "kids" -> ChildrenManageScreen(
+                "config" -> ParentConfigScreen(
                     user = user,
                     onUserChanged = onUserChanged,
                 )

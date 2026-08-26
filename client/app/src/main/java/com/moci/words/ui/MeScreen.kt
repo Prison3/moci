@@ -50,7 +50,7 @@ import com.moci.words.update.DownloadProgress
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-/** 我的：头像、自己的学习任务、版本。家长的孩子管理在 [ChildrenManageScreen]。 */
+/** 我的：头像、版本；学生可切回家长。学习任务在 [ParentConfigScreen]。 */
 @Composable
 fun MeScreen(
     user: User,
@@ -120,23 +120,6 @@ fun MeScreen(
                     }
                 }
 
-                // 家长：只管理自己的学习任务
-                if (user.isParent) {
-                    val ownTask = data.task
-                    if (ownTask != null) {
-                        ChildSettingsCard(
-                            child = ChildInfo(data.user, data.stats, ownTask),
-                            onSaved = {
-                                scope.launch {
-                                    runCatching { onUserChanged(app.api.me()) }
-                                    state.reload()
-                                }
-                            },
-                            title = "我的学习任务",
-                        )
-                    }
-                }
-
                 // 管理员：入口提示（具体在各自 tab）
                 if (user.isAdmin) {
                     PanelCard {
@@ -185,9 +168,9 @@ fun MeScreen(
     }
 }
 
-/** 家长：孩子列表、学习任务设置、一键切换到孩子。 */
+/** 家长配置：自己和孩子的学习任务，以及一键切换到孩子。 */
 @Composable
-fun ChildrenManageScreen(
+fun ParentConfigScreen(
     user: User,
     onUserChanged: (User) -> Unit,
 ) {
@@ -196,7 +179,7 @@ fun ChildrenManageScreen(
     val scope = rememberCoroutineScope()
     val state = rememberData { profile() }
     val data = state.data
-    var selectedChildId by remember(user.id) { mutableIntStateOf(-1) }
+    var selectedId by remember(user.id) { mutableIntStateOf(user.id) }
     LaunchedEffect(user.settingsKey) { state.reload() }
 
     Column(
@@ -208,40 +191,73 @@ fun ChildrenManageScreen(
             state.loading && data == null -> LoadingBox()
             state.error != null && data == null -> ErrorBox(state.error!!, state.reload)
             data != null -> {
+                val selfInfo = data.task?.let { ChildInfo(data.user, data.stats, it) }
                 val children = data.children
-                if (children.isEmpty()) {
+                val targets = buildList {
+                    if (selfInfo != null) add(selfInfo)
+                    addAll(children)
+                }
+
+                if (targets.isEmpty()) {
                     PanelCard {
                         Text(
-                            "还没有绑定孩子。请联系管理员，把学生账号绑到你的家长账号下。",
+                            "还没有可配置的学习任务。请联系管理员绑定孩子，或稍后再试。",
                             fontSize = 14.sp,
                             color = InkSoft,
                         )
                     }
                 } else {
-                    if (selectedChildId == -1 || children.none { it.user.id == selectedChildId }) {
-                        selectedChildId = children.first().user.id
-                    }
-                    val selected = children.first { it.user.id == selectedChildId }
+                    val selected = targets.firstOrNull { it.user.id == selectedId } ?: targets.first()
+                    val isSelf = selected.user.id == user.id
+                    val selfOffset = if (selfInfo != null) 1 else 0
+
                     PanelCard {
-                        PanelTitle("孩子列表")
+                        PanelTitle("配置对象")
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (selfInfo != null) {
+                                ChildSelectRow(
+                                    child = selfInfo,
+                                    selected = selected.user.id == selfInfo.user.id,
+                                    accent = childAccentAt(0),
+                                    onClick = { selectedId = selfInfo.user.id },
+                                    title = "我自己",
+                                )
+                            }
                             children.forEachIndexed { index, child ->
                                 ChildSelectRow(
                                     child = child,
-                                    selected = child.user.id == selectedChildId,
-                                    accent = childAccentAt(index),
-                                    onClick = { selectedChildId = child.user.id },
+                                    selected = selected.user.id == child.user.id,
+                                    accent = childAccentAt(index + selfOffset),
+                                    onClick = { selectedId = child.user.id },
                                 )
                             }
                         }
                     }
 
+                    if (children.isEmpty()) {
+                        PanelCard {
+                            Text(
+                                "还没有绑定孩子。请联系管理员，把学生账号绑到你的家长账号下。",
+                                fontSize = 14.sp,
+                                color = InkSoft,
+                            )
+                        }
+                    }
+
                     ChildSettingsCard(
                         child = selected,
-                        onSaved = { state.reload() },
+                        onSaved = {
+                            scope.launch {
+                                if (isSelf) {
+                                    runCatching { onUserChanged(app.api.me()) }
+                                }
+                                state.reload()
+                            }
+                        },
+                        title = if (isSelf) "我的学习任务" else "学习任务 · ${selected.user.username}",
                     )
 
-                    if (selected.user.status == "approved") {
+                    if (!isSelf && selected.user.status == "approved") {
                         PanelCard {
                             PanelTitle("切换到孩子")
                             Text(
