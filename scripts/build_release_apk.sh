@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLIENT="$ROOT/client"
 OUT="$ROOT/server/downloads"
 APK_NAME="moci.apk"
-REMOTE_HOST="${MOCI_UPLOAD_HOST:-root@cn}"
+REMOTE_HOST="${MOCI_UPLOAD_HOST:-root@S1}"
 REMOTE_DIR="${MOCI_UPLOAD_DIR:-/root/moci/server/downloads}"
 REMOTE="${REMOTE_HOST}:${REMOTE_DIR}/${APK_NAME}"
 
