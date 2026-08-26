@@ -548,6 +548,7 @@ class ApiClient(context: Context, defaultBaseUrl: String, private val grpcPort: 
             put("word_levels", JSONArray(wordLevels))
         })
         invalidateParentProfile()
+        invalidateLearnerProgress()
         return json.optString("message", "已保存。")
     }
 

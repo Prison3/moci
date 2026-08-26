@@ -21,6 +21,15 @@ val Pine2 = Color(0xFF3D6656)
 val Cinnabar = Color(0xFFB4452A)
 val Warn = Color(0xFF9A6B24)
 
+/** 底部导航各 Tab 的强调色 */
+val NavHome = Color(0xFF2F7A55)
+val NavStudy = Color(0xFF2A7FB5)
+val NavRank = Color(0xFFD4922A)
+val NavMe = Color(0xFFD4563A)
+val NavWords = Color(0xFF3D6BB3)
+val NavUsers = Color(0xFF8A4FA3)
+val NavLearning = Color(0xFFC97820)
+
 val SerifFamily = FontFamily.Serif
 
 private val MociColors = lightColorScheme(

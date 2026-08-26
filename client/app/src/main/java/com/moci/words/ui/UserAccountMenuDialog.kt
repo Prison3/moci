@@ -104,13 +104,13 @@ fun UserAccountDropdownMenu(
 
     val switchTargets = remember(user.id, profile) {
         when {
-            user.isLearner -> profile?.parents
-                ?.filter { it.status == "approved" }
-                ?.map { SwitchTarget.Parent(it) }
-                .orEmpty()
             user.isParent -> profile?.children
                 ?.filter { it.user.status == "approved" }
                 ?.map { SwitchTarget.Child(it.user) }
+                .orEmpty()
+            user.isLearner -> profile?.parents
+                ?.filter { it.status == "approved" }
+                ?.map { SwitchTarget.Parent(it) }
                 .orEmpty()
             else -> emptyList()
         }

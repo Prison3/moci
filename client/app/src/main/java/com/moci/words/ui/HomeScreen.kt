@@ -3,11 +3,13 @@ package com.moci.words.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.moci.words.MociApp
 import com.moci.words.api.ApiException
 import com.moci.words.api.CalCell
+import com.moci.words.api.ChildInfo
 import com.moci.words.api.DayWord
 import com.moci.words.api.ParentHome
 import com.moci.words.api.User
@@ -52,7 +56,7 @@ fun HomeScreen(
 ) {
     when {
         user.isAdmin -> AdminHomeScreen(wordsKey, onNavigate)
-        user.isParent -> ParentHomeScreen(wordsKey)
+        user.isParent -> ParentHomeScreen(wordsKey, onStartStudy, onGameImmersiveChange)
         else -> LearnerHomeScreen(user, settingsKey, wordsKey, onStartStudy, onGameImmersiveChange)
     }
 }
@@ -221,7 +225,11 @@ private fun calDetailText(cell: CalCell, newQuota: Int, reviewQuota: Int): Strin
 // 家长首页
 
 @Composable
-private fun ParentHomeScreen(wordsKey: Long) {
+private fun ParentHomeScreen(
+    wordsKey: Long,
+    onStartStudy: () -> Unit,
+    onGameImmersiveChange: (Boolean) -> Unit = {},
+) {
     val app = LocalContext.current.applicationContext as MociApp
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -232,6 +240,7 @@ private fun ParentHomeScreen(wordsKey: Long) {
     var data by remember { mutableStateOf<ParentHome?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
+    var showRewards by remember { mutableStateOf(false) }
 
     fun load(d: String? = date, uid: Int? = detailId, k: String = kind) {
         loading = true
@@ -253,37 +262,83 @@ private fun ParentHomeScreen(wordsKey: Long) {
     }
     LaunchedEffect(wordsKey) { load() }
 
+    if (showRewards) {
+        RewardGamesScreen(
+            onBack = { showRewards = false },
+            onImmersiveChange = onGameImmersiveChange,
+        )
+        return
+    }
+
     val d = data
     when {
         loading && d == null -> LoadingBox()
         error != null && d == null -> ErrorBox(error!!) { load() }
         d != null -> {
-            if (d.children.isEmpty()) {
-                EmptyBox("还没有绑定孩子", "请联系管理员，把学生账号绑到你的家长账号下。")
-                return
-            }
             Column(
                 Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState()),
             ) {
-                // 孩子卡片
+                ParentSelfCard(
+                    user = d.user,
+                    task = d.selfTask,
+                    stats = d.selfStats,
+                    onStartStudy = onStartStudy,
+                    onReward = { showRewards = true },
+                )
+
+                if (d.children.isEmpty()) {
+                    PanelCard {
+                        Text(
+                            "还没有绑定孩子。请联系管理员，把学生账号绑到你的家长账号下。",
+                            fontSize = 14.sp,
+                            color = InkSoft,
+                        )
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    return@Column
+                }
+
+                val selectedChild = d.children.firstOrNull { it.user.id == d.detailId }
+                    ?: d.children.first()
+                val selectedIndex = d.children.indexOfFirst { it.user.id == selectedChild.user.id }
+                    .coerceAtLeast(0)
+                val accent = childAccent(selectedIndex)
+
                 PanelCard {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        d.children.forEach { child ->
-                            val selected = child.user.id == d.detailId
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable {
+                    PanelTitle("孩子")
+                    if (d.children.size > 1) {
+                        Row(
+                            Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            d.children.forEachIndexed { index, child ->
+                                ChildChip(
+                                    child = child,
+                                    selected = child.user.id == selectedChild.user.id,
+                                    accent = childAccent(index),
+                                    onClick = {
                                         detailId = child.user.id
                                         load(d = date, uid = child.user.id, k = kind)
                                     },
-                            ) {
-                                ChildCard(child, selected)
+                                )
                             }
                         }
+                        Spacer(Modifier.height(14.dp))
                     }
+                    ChildHero(selectedChild, accent)
+                }
+
+                selectedChild.stats?.let { stats ->
+                    StatGrid(
+                        listOf(
+                            "${stats.total}" to "单词",
+                            "${stats.newCount}" to "新词",
+                            "${stats.learning}" to "了解",
+                            "${stats.mastered}" to "掌握",
+                        ),
+                    )
                 }
 
                 // kind 切换
@@ -337,39 +392,159 @@ private fun ParentHomeScreen(wordsKey: Long) {
     }
 }
 
+private val CHILD_ACCENTS = listOf(NavHome, NavStudy, NavRank, NavMe, NavWords, NavUsers)
+
+private fun childAccent(index: Int): Color = CHILD_ACCENTS[index % CHILD_ACCENTS.size]
+
 @Composable
-private fun ChildCard(child: com.moci.words.api.ChildInfo, selected: Boolean) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) Pine.copy(alpha = 0.10f) else Paper)
-            .border(
-                1.dp,
-                if (selected) Pine.copy(alpha = 0.4f) else Line,
-                RoundedCornerShape(12.dp),
+private fun ParentSelfCard(
+    user: User,
+    task: com.moci.words.api.TodayTask?,
+    stats: com.moci.words.api.WordStats?,
+    onStartStudy: () -> Unit,
+    onReward: () -> Unit,
+) {
+    stats?.let {
+        StatGrid(
+            listOf(
+                "${it.total}" to "单词",
+                "${it.newCount}" to "新词",
+                "${it.learning}" to "了解",
+                "${it.mastered}" to "掌握",
+            ),
+        )
+    }
+    PanelCard {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            UserAvatar(user.avatar, user.username, size = 44.dp)
+            Column {
+                Text("${user.username} · 家长", fontSize = 13.sp, color = InkSoft)
+                Spacer(Modifier.height(6.dp))
+                val remaining = task?.remaining ?: 0
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        if (remaining > 0) "今日待完成" else "今日任务完成",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Ink,
+                    )
+                    if (remaining > 0) {
+                        Spacer(Modifier.padding(horizontal = 4.dp))
+                        Text("$remaining", style = MociType.heroNumber)
+                    }
+                }
+            }
+        }
+        if (task != null) {
+            Text(
+                "新词 ${task.new.done} / ${task.new.quota} · 复习 ${task.review.done} / ${task.review.quota}",
+                fontSize = 13.sp,
+                color = InkSoft,
             )
-            .padding(12.dp),
+            Spacer(Modifier.height(14.dp))
+            if (task.remaining > 0) {
+                MociButton("开始学习", onClick = onStartStudy)
+            } else {
+                TaskRewardButton(onClick = onReward)
+            }
+        } else {
+            Spacer(Modifier.height(14.dp))
+            MociButton("开始学习", onClick = onStartStudy)
+        }
+    }
+}
+
+@Composable
+private fun ChildChip(
+    child: ChildInfo,
+    selected: Boolean,
+    accent: Color,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (selected) accent else Paper)
+            .border(1.dp, if (selected) accent else Line, RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
     ) {
+        UserAvatar(child.user.avatar, child.user.username, size = 28.dp)
         Text(
             child.user.username,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (selected) Pine else Ink,
+            fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            color = if (selected) Paper2 else Ink,
+            maxLines = 1,
         )
+    }
+}
+
+@Composable
+private fun ChildHero(child: ChildInfo, accent: Color) {
+    val remaining = child.task.remaining
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        UserAvatar(child.user.avatar, child.user.username, size = 52.dp)
+        Column(Modifier.weight(1f)) {
+            Text(
+                child.user.username,
+                fontSize = 13.sp,
+                color = InkSoft,
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    if (remaining > 0) "今日待完成" else "今日任务完成",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Ink,
+                )
+                if (remaining > 0) {
+                    Spacer(Modifier.padding(horizontal = 4.dp))
+                    Text("$remaining", style = MociType.heroNumber.copy(fontSize = 28.sp, color = accent))
+                }
+            }
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+    ChildTaskLine("新词", child.task.new.done, child.task.new.quota, accent)
+    Spacer(Modifier.height(8.dp))
+    ChildTaskLine("复习", child.task.review.done, child.task.review.quota, NavRank)
+}
+
+@Composable
+private fun ChildTaskLine(label: String, done: Int, quota: Int, color: Color) {
+    val frac = if (quota <= 0) 0f else (done.toFloat() / quota).coerceIn(0f, 1f)
+    Column {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(label, fontSize = 12.sp, color = InkSoft)
+            Text("$done / $quota", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = color)
+        }
         Spacer(Modifier.height(4.dp))
-        Text(
-            "今日新词 ${child.task.new.done} / ${child.task.new.quota}",
-            fontSize = 12.sp,
-            color = InkSoft,
-        )
-        Text(
-            "今日复习 ${child.task.review.done} / ${child.task.review.quota}",
-            fontSize = 12.sp,
-            color = InkSoft,
-        )
-        child.stats?.let {
-            Text("了解 ${it.learning} · 掌握 ${it.mastered}", fontSize = 12.sp, color = InkSoft)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(99.dp))
+                .background(color.copy(alpha = 0.16f)),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(frac)
+                    .background(color),
+            )
         }
     }
 }

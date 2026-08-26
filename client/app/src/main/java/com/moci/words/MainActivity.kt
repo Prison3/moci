@@ -9,20 +9,27 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +40,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -47,16 +56,23 @@ import com.moci.words.api.User
 import com.moci.words.update.AppUpdater
 import com.moci.words.update.DownloadProgress
 import com.moci.words.ui.AuthScreen
+import com.moci.words.ui.ChildrenManageScreen
 import com.moci.words.ui.HomeScreen
-import com.moci.words.ui.InkSoft
 import com.moci.words.ui.LearningScreen
+import com.moci.words.ui.Line
 import com.moci.words.ui.LoadingBox
 import com.moci.words.ui.MeScreen
 import com.moci.words.ui.MociIcons
 import com.moci.words.ui.MociTheme
+import com.moci.words.ui.NavHome
+import com.moci.words.ui.NavLearning
+import com.moci.words.ui.NavMe
+import com.moci.words.ui.NavRank
+import com.moci.words.ui.NavStudy
+import com.moci.words.ui.NavUsers
+import com.moci.words.ui.NavWords
 import com.moci.words.ui.Paper
 import com.moci.words.ui.Paper2
-import com.moci.words.ui.Pine
 import com.moci.words.ui.RankScreen
 import com.moci.words.ui.StudyScreen
 import com.moci.words.ui.UpdateDialog
@@ -197,24 +213,28 @@ private data class TabSpec(
     val key: String,
     val label: String,
     val icon: ImageVector,
+    val accent: Color,
 )
 
 private fun tabsFor(user: User): List<TabSpec> = when {
     user.isAdmin -> listOf(
-        TabSpec("home", "首页", MociIcons.Home),
-        TabSpec("words", "词库", MociIcons.Book),
-        TabSpec("users", "用户", MociIcons.Users),
-        TabSpec("learning", "学情", MociIcons.Chart),
+        TabSpec("home", "首页", MociIcons.Home, NavHome),
+        TabSpec("words", "词库", MociIcons.Book, NavWords),
+        TabSpec("users", "用户", MociIcons.Users, NavUsers),
+        TabSpec("learning", "学情", MociIcons.Chart, NavLearning),
     )
     user.isParent -> listOf(
-        TabSpec("home", "首页", MociIcons.Home),
-        TabSpec("me", "我的", MociIcons.Person),
+        TabSpec("home", "首页", MociIcons.Home, NavHome),
+        TabSpec("study", "学习", MociIcons.Study, NavStudy),
+        TabSpec("rank", "排行", MociIcons.Trophy, NavRank),
+        TabSpec("kids", "孩子", MociIcons.Users, NavUsers),
+        TabSpec("me", "我的", MociIcons.Person, NavMe),
     )
     else -> listOf(
-        TabSpec("home", "首页", MociIcons.Home),
-        TabSpec("study", "学习", MociIcons.Study),
-        TabSpec("rank", "排行", MociIcons.Trophy),
-        TabSpec("me", "我的", MociIcons.Person),
+        TabSpec("home", "首页", MociIcons.Home, NavHome),
+        TabSpec("study", "学习", MociIcons.Study, NavStudy),
+        TabSpec("rank", "排行", MociIcons.Trophy, NavRank),
+        TabSpec("me", "我的", MociIcons.Person, NavMe),
     )
 }
 
@@ -256,8 +276,9 @@ private fun MainScaffold(
         if (currentTab != "study" && !gameImmersive) {
             com.moci.words.ui.MociTopBar(
                 subtitle = when {
+                    currentTab == "kids" -> "设置任务，或切换到孩子"
                     user.isAdmin -> "管理词库与用户"
-                    user.isParent -> "关注孩子每天的学习"
+                    user.isParent -> "自己学，也看看孩子"
                     else -> "今天也把几个词留下来"
                 },
                 username = user.username,
@@ -303,6 +324,10 @@ private fun MainScaffold(
                     onGameImmersiveChange = { gameImmersive = it },
                 )
                 "rank" -> RankScreen(user = user)
+                "kids" -> ChildrenManageScreen(
+                    user = user,
+                    onUserChanged = onUserChanged,
+                )
                 "me" -> MeScreen(
                     user = user,
                     onUserChanged = onUserChanged,
@@ -334,34 +359,69 @@ private fun MociTabBar(
     current: String,
     onSelect: (String) -> Unit,
 ) {
-    Row(
+    val barShape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+    Column(
         Modifier
             .fillMaxWidth()
+            .clip(barShape)
             .background(Paper2)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceAround,
+            .border(1.dp, Line, barShape)
+            .padding(top = 4.dp),
     ) {
-        tabs.forEach { tab ->
-            val active = tab.key == current
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { onSelect(tab.key) }
-                    .padding(vertical = 4.dp),
-            ) {
-                Icon(
-                    tab.icon,
-                    contentDescription = tab.label,
-                    tint = if (active) Pine else InkSoft,
-                    modifier = Modifier.size(22.dp),
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            tabs.forEach { tab ->
+                val active = tab.key == current
+                val accent = tab.accent
+                val iconTint by animateColorAsState(
+                    if (active) Paper2 else accent.copy(alpha = 0.62f),
+                    label = "navIcon",
                 )
-                Text(
-                    tab.label,
-                    fontSize = 11.sp,
-                    color = if (active) Pine else InkSoft,
-                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                val labelTint by animateColorAsState(
+                    if (active) accent else accent.copy(alpha = 0.62f),
+                    label = "navLabel",
                 )
+                val pill by animateColorAsState(
+                    if (active) accent else Color.Transparent,
+                    label = "navPill",
+                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(
+                            interactionSource = remember(tab.key) { MutableInteractionSource() },
+                            indication = ripple(bounded = false, radius = 28.dp, color = accent),
+                            onClick = { onSelect(tab.key) },
+                        )
+                        .padding(top = 6.dp, bottom = 4.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(48.dp)
+                            .height(28.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(pill),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            tab.icon,
+                            contentDescription = tab.label,
+                            tint = iconTint,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                    Text(
+                        tab.label,
+                        fontSize = 11.sp,
+                        color = labelTint,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
             }
         }
     }

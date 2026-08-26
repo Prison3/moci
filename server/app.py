@@ -139,7 +139,8 @@ def is_parent(user) -> bool:
 
 
 def is_learner(user) -> bool:
-    return bool(user) and user["role"] == ROLE_USER
+    """学生和家长都可以背单词、上排行、玩游戏。"""
+    return bool(user) and user["role"] in {ROLE_USER, ROLE_PARENT}
 
 
 def is_approved(user) -> bool:
@@ -353,11 +354,11 @@ def mastery_ranking(viewer_id: int | None = None) -> dict:
         FROM users u
         LEFT JOIN words w ON 1 = 1
         LEFT JOIN progress p ON p.user_id = u.id AND p.word_id = w.id
-        WHERE u.role = ? AND u.status = ?
+        WHERE u.role IN (?, ?) AND u.status = ?
         GROUP BY u.id, u.username, u.avatar
         ORDER BY mastered DESC, learning DESC, u.username ASC
         """,
-        (ROLE_USER, STATUS_APPROVED),
+        (ROLE_USER, ROLE_PARENT, STATUS_APPROVED),
     ).fetchall()
     items: list[dict] = []
     me: dict | None = None
@@ -395,12 +396,12 @@ def game_ranking(game: str, viewer_id: int | None = None) -> dict:
             {agg}(gs.score) AS best_score
         FROM users u
         INNER JOIN game_scores gs ON gs.user_id = u.id AND gs.game = ?
-        WHERE u.role = ? AND u.status = ?
+        WHERE u.role IN (?, ?) AND u.status = ?
         GROUP BY u.id, u.username, u.avatar
         HAVING best_score IS NOT NULL
         ORDER BY best_score {order}, u.username ASC
         """,
-        (game, ROLE_USER, STATUS_APPROVED),
+        (game, ROLE_USER, ROLE_PARENT, STATUS_APPROVED),
     ).fetchall()
     items: list[dict] = []
     me: dict | None = None
@@ -2364,6 +2365,8 @@ def api_home():
                 "ok": True,
                 "user": _public_user(user),
                 "children": children,
+                "self_task": today_task(user["id"], user),
+                "self_stats": word_stats(user["id"], levels_of(user)),
                 "day": day,
                 "detail_id": detail_id,
                 "kind": kind,
@@ -2575,18 +2578,20 @@ def api_profile():
     out: dict = {"ok": True, "user": _public_user(user)}
     if is_learner(user):
         out["stats"] = word_stats(user["id"], levels_of(user))
-        out["parents"] = [
-            {
-                "id": row["id"],
-                "username": row["username"],
-                "role": "parent",
-                "status": row["status"],
-                "created_at": row["created_at"],
-                "avatar": avatar_of(row),
-            }
-            for row in parents_of(user["id"])
-        ]
-    elif is_parent(user):
+        out["task"] = today_task(user["id"], user)
+        if not is_parent(user):
+            out["parents"] = [
+                {
+                    "id": row["id"],
+                    "username": row["username"],
+                    "role": "parent",
+                    "status": row["status"],
+                    "created_at": row["created_at"],
+                    "avatar": avatar_of(row),
+                }
+                for row in parents_of(user["id"])
+            ]
+    if is_parent(user):
         out["children"] = [
             {"user": _public_user(kid), "task": today_task(kid["id"], kid)}
             for kid in children_of(user["id"])
@@ -2634,8 +2639,9 @@ def api_child_settings(child_id: int):
     user = current_user()
     if not is_parent(user):
         return api_error("只有家长可以设置学习任务。", 403, "forbidden")
-    if child_id not in child_ids_of(user["id"]):
-        return api_error("只能设置自己的孩子。", 403, "forbidden")
+    own = child_id == user["id"]
+    if not own and child_id not in child_ids_of(user["id"]):
+        return api_error("只能设置自己或自己的孩子。", 403, "forbidden")
     data = request.get_json(silent=True) or {}
     new_value = clamp_daily_words(data.get("daily_words"), DEFAULT_DAILY_WORDS)
     review_value = clamp_daily_words(data.get("daily_review"), DEFAULT_DAILY_REVIEW)
@@ -2660,7 +2666,7 @@ def api_child_settings(child_id: int):
         UPDATE users SET daily_words = ?, daily_review = ?,
                know_speak = ?, know_spell = ?, know_pos = ?, know_phonetic = ?,
                reward_minutes = ?, word_levels = ?
-        WHERE id = ? AND role = ?
+        WHERE id = ?
         """,
         (
             new_value,
@@ -2672,7 +2678,6 @@ def api_child_settings(child_id: int):
             reward_minutes,
             word_levels,
             child_id,
-            ROLE_USER,
         ),
     )
     get_db().commit()
@@ -2710,7 +2715,7 @@ def api_switch():
             {"ok": True, "user": _public_user(target), "csrf_token": csrf_token()}
         )
 
-    if is_parent(user) and is_learner(target):
+    if is_parent(user) and target["role"] == ROLE_USER:
         if target["id"] not in child_ids_of(user["id"]):
             return api_error("只能切换到自己的孩子。")
         _switch_session(target)
@@ -2723,7 +2728,7 @@ def api_switch():
             }
         )
 
-    if is_learner(user) and is_parent(target):
+    if user["role"] == ROLE_USER and is_parent(target):
         linked = {row["id"] for row in parents_of(user["id"])}
         if target["id"] not in linked:
             return api_error("只能切换到绑定的家长。")

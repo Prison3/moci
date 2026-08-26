@@ -48,7 +48,7 @@ data class User(
 ) {
     val isAdmin get() = role == "admin"
     val isParent get() = role == "parent"
-    val isLearner get() = role == "user"
+    val isLearner get() = role == "user" || role == "parent"
     val roleLabel get() = when (role) {
         "admin" -> "管理员"
         "parent" -> "家长"
@@ -446,6 +446,8 @@ data class LearnerHome(
 data class ParentHome(
     val user: User,
     val children: List<ChildInfo>,
+    val selfTask: TodayTask?,
+    val selfStats: WordStats?,
     val day: String,
     val detailId: Int?,
     val kind: String,
@@ -462,6 +464,8 @@ data class ParentHome(
             return ParentHome(
                 user = User.from(o.getJSONObject("user")),
                 children = (0 until childrenArr.length()).map { ChildInfo.from(childrenArr.getJSONObject(it)) },
+                selfTask = o.optJSONObject("self_task")?.let { TodayTask.from(it) },
+                selfStats = o.optJSONObject("self_stats")?.let { WordStats.from(it) },
                 day = o.optString("day"),
                 detailId = detail,
                 kind = o.optString("kind", "new"),
@@ -589,6 +593,7 @@ data class LearningData(
 data class ProfileData(
     val user: User,
     val stats: WordStats?,
+    val task: TodayTask?,
     val parents: List<PendingUser>,
     val children: List<ChildInfo>,
 ) {
@@ -598,6 +603,7 @@ data class ProfileData(
             return ProfileData(
                 user = User.from(o.getJSONObject("user")),
                 stats = o.optJSONObject("stats")?.let { WordStats.from(it) },
+                task = o.optJSONObject("task")?.let { TodayTask.from(it) },
                 parents = PendingUser.listFrom(o.optJSONArray("parents")),
                 children = if (childrenArr == null) emptyList()
                 else (0 until childrenArr.length()).map { ChildInfo.from(childrenArr.getJSONObject(it)) },

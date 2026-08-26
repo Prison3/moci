@@ -49,6 +49,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -59,6 +60,7 @@ import com.moci.words.MociApp
 import com.moci.words.api.ApiClient
 import com.moci.words.api.ApiException
 import com.moci.words.api.CalCell
+import com.moci.words.api.ChildInfo
 import com.moci.words.api.DayWord
 import com.moci.words.api.parsePosTags
 import com.moci.words.api.MonthCal
@@ -117,42 +119,50 @@ fun MociTopBar(
     val density = LocalDensity.current
     var anchorWidth by remember { mutableStateOf(0.dp) }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Column {
-            Text("Moci", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Pine, fontFamily = SerifFamily)
-            if (subtitle.isNotEmpty()) {
-                Text(subtitle, fontSize = 12.sp, color = InkSoft)
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column {
+                Text("Moci", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Pine, fontFamily = SerifFamily)
+                if (subtitle.isNotEmpty()) {
+                    Text(subtitle, fontSize = 12.sp, color = InkSoft)
+                }
+            }
+            Box {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .onSizeChanged { anchorWidth = with(density) { it.width.toDp() } }
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Paper2)
+                        .border(1.dp, Line, RoundedCornerShape(999.dp))
+                        .clickable(onClick = onUserClick)
+                        .padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+                ) {
+                    UserAvatar(avatar, username, size = 32.dp)
+                    Text(
+                        username,
+                        fontSize = 14.sp,
+                        color = Pine,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                    )
+                }
+                menuContent(anchorWidth)
             }
         }
-        Box {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .onSizeChanged { anchorWidth = with(density) { it.width.toDp() } }
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Paper2)
-                    .border(1.dp, Line, RoundedCornerShape(999.dp))
-                    .clickable(onClick = onUserClick)
-                    .padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
-            ) {
-                UserAvatar(avatar, username, size = 32.dp)
-                Text(
-                    username,
-                    fontSize = 14.sp,
-                    color = Pine,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                )
-            }
-            menuContent(anchorWidth)
-        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Line),
+        )
     }
 }
 
@@ -181,6 +191,59 @@ fun PanelTitle(title: String, action: (@Composable () -> Unit)? = null) {
         action?.invoke()
     }
     Spacer(Modifier.height(10.dp))
+}
+
+private val ChildAccents = listOf(NavHome, NavStudy, NavRank, NavMe, NavWords, NavUsers)
+
+fun childAccentAt(index: Int): Color = ChildAccents[index.mod(ChildAccents.size)]
+
+/** 家长选孩子：整行卡片，避免多人挤在一行把名字竖排。 */
+@Composable
+fun ChildSelectRow(
+    child: ChildInfo,
+    selected: Boolean,
+    accent: Color,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (selected) accent.copy(alpha = 0.14f) else Paper)
+            .border(1.dp, if (selected) accent else Line, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        UserAvatar(child.user.avatar, child.user.username, size = 44.dp)
+        Column(Modifier.weight(1f)) {
+            Text(
+                child.user.username,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (selected) accent else Ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "今日 ${child.task.done} / ${child.task.quota}",
+                fontSize = 13.sp,
+                color = InkSoft,
+                maxLines = 1,
+            )
+        }
+        if (selected) {
+            Box(
+                Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(accent),
+            )
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

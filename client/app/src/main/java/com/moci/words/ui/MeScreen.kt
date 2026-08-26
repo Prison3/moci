@@ -50,7 +50,7 @@ import com.moci.words.update.DownloadProgress
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-/** 我的：头像设置、家长任务、账号切换等。 */
+/** 我的：头像、自己的学习任务、版本。家长的孩子管理在 [ChildrenManageScreen]。 */
 @Composable
 fun MeScreen(
     user: User,
@@ -62,7 +62,6 @@ fun MeScreen(
     val state = rememberData { profile() }
     val data = state.data
 
-    var selectedChildId by remember(user.id) { mutableIntStateOf(-1) }
     var avatarCropUri by remember { mutableStateOf<Uri?>(null) }
     LaunchedEffect(user.settingsKey) { state.reload() }
 
@@ -83,7 +82,7 @@ fun MeScreen(
             state.error != null && data == null -> ErrorBox(state.error!!, state.reload)
             data != null -> {
                 // 学生：家长配置（只读）+ 切换家长
-                if (user.isLearner) {
+                if (user.isLearner && !user.isParent) {
                     LearnerSettingsReadonly(data.user)
                     PanelCard {
                         PanelTitle("切换账号")
@@ -121,88 +120,20 @@ fun MeScreen(
                     }
                 }
 
-                // 家长：孩子列表 + 任务设置 + 切换到孩子
+                // 家长：只管理自己的学习任务
                 if (user.isParent) {
-                    if (data.children.isEmpty()) {
-                        PanelCard {
-                            Text(
-                                "还没有绑定孩子。请联系管理员，把学生账号绑到你的家长账号下。",
-                                fontSize = 14.sp,
-                                color = InkSoft,
-                            )
-                        }
-                    } else {
-                        val children = data.children
-                        if (selectedChildId == -1 || children.none { it.user.id == selectedChildId }) {
-                            selectedChildId = children.first().user.id
-                        }
-                        val selected = children.first { it.user.id == selectedChildId }
-                        PanelCard {
-                            PanelTitle("孩子列表")
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                children.forEach { child ->
-                                    val sel = child.user.id == selectedChildId
-                                    Column(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clickable { selectedChildId = child.user.id },
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        ) {
-                                            UserAvatar(child.user.avatar, child.user.username, size = 32.dp)
-                                            Column {
-                                                Text(
-                                                    child.user.username,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 15.sp,
-                                                    color = if (sel) Pine else Ink,
-                                                )
-                                                Text(
-                                                    "今日 ${child.task.done}/${child.task.quota}",
-                                                    fontSize = 12.sp,
-                                                    color = InkSoft,
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
+                    val ownTask = data.task
+                    if (ownTask != null) {
                         ChildSettingsCard(
-                            child = selected,
-                            onSaved = { state.reload() },
-                        )
-
-                        if (selected.user.status == "approved") {
-                            PanelCard {
-                                PanelTitle("切换到孩子")
-                                Text(
-                                    "一键切换到 ${selected.user.username}，无需密码。",
-                                    fontSize = 13.sp,
-                                    color = InkSoft,
-                                )
-                                Spacer(Modifier.height(10.dp))
-                                MociButton(
-                                    "切换到 ${selected.user.username}",
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    scope.launch {
-                                        try {
-                                            val newUser = app.api.switchAccount(selected.user.id)
-                                            context.toast("已切换到 ${newUser.username}。")
-                                            onUserChanged(newUser)
-                                        } catch (e: ApiException) {
-                                            context.toast(e.message ?: "切换失败。")
-                                        } catch (e: Exception) {
-                                            context.toast("切换失败，请重试。")
-                                        }
-                                    }
+                            child = ChildInfo(data.user, data.stats, ownTask),
+                            onSaved = {
+                                scope.launch {
+                                    runCatching { onUserChanged(app.api.me()) }
+                                    state.reload()
                                 }
-                            }
-                        }
+                            },
+                            title = "我的学习任务",
+                        )
                     }
                 }
 
@@ -249,6 +180,96 @@ fun MeScreen(
                         }
                     },
                 )
+            }
+        }
+    }
+}
+
+/** 家长：孩子列表、学习任务设置、一键切换到孩子。 */
+@Composable
+fun ChildrenManageScreen(
+    user: User,
+    onUserChanged: (User) -> Unit,
+) {
+    val app = LocalContext.current.applicationContext as MociApp
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val state = rememberData { profile() }
+    val data = state.data
+    var selectedChildId by remember(user.id) { mutableIntStateOf(-1) }
+    LaunchedEffect(user.settingsKey) { state.reload() }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+    ) {
+        when {
+            state.loading && data == null -> LoadingBox()
+            state.error != null && data == null -> ErrorBox(state.error!!, state.reload)
+            data != null -> {
+                val children = data.children
+                if (children.isEmpty()) {
+                    PanelCard {
+                        Text(
+                            "还没有绑定孩子。请联系管理员，把学生账号绑到你的家长账号下。",
+                            fontSize = 14.sp,
+                            color = InkSoft,
+                        )
+                    }
+                } else {
+                    if (selectedChildId == -1 || children.none { it.user.id == selectedChildId }) {
+                        selectedChildId = children.first().user.id
+                    }
+                    val selected = children.first { it.user.id == selectedChildId }
+                    PanelCard {
+                        PanelTitle("孩子列表")
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            children.forEachIndexed { index, child ->
+                                ChildSelectRow(
+                                    child = child,
+                                    selected = child.user.id == selectedChildId,
+                                    accent = childAccentAt(index),
+                                    onClick = { selectedChildId = child.user.id },
+                                )
+                            }
+                        }
+                    }
+
+                    ChildSettingsCard(
+                        child = selected,
+                        onSaved = { state.reload() },
+                    )
+
+                    if (selected.user.status == "approved") {
+                        PanelCard {
+                            PanelTitle("切换到孩子")
+                            Text(
+                                "一键切换到 ${selected.user.username}，无需密码。",
+                                fontSize = 13.sp,
+                                color = InkSoft,
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            MociButton(
+                                "切换到 ${selected.user.username}",
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                scope.launch {
+                                    try {
+                                        val newUser = app.api.switchAccount(selected.user.id)
+                                        context.toast("已切换到 ${newUser.username}。")
+                                        onUserChanged(newUser)
+                                    } catch (e: ApiException) {
+                                        context.toast(e.message ?: "切换失败。")
+                                    } catch (_: Exception) {
+                                        context.toast("切换失败，请重试。")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
             }
         }
     }
@@ -506,7 +527,11 @@ private fun ParentSwitchRow(username: String, avatar: String, onSwitch: (String)
 }
 
 @Composable
-private fun ChildSettingsCard(child: ChildInfo, onSaved: () -> Unit) {
+private fun ChildSettingsCard(
+    child: ChildInfo,
+    onSaved: () -> Unit,
+    title: String = "学习任务 · ${child.user.username}",
+) {
     val app = LocalContext.current.applicationContext as MociApp
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -530,7 +555,7 @@ private fun ChildSettingsCard(child: ChildInfo, onSaved: () -> Unit) {
     var saving by remember { mutableStateOf(false) }
 
     PanelCard {
-        PanelTitle("学习任务 · ${child.user.username}")
+        PanelTitle(title)
         MociTextField(
             value = dailyWords,
             onValueChange = { dailyWords = it.filter(Char::isDigit).take(2) },
