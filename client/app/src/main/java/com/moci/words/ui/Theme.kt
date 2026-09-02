@@ -29,6 +29,7 @@ val NavMe = Color(0xFFD4563A)
 val NavWords = Color(0xFF3D6BB3)
 val NavUsers = Color(0xFF8A4FA3)
 val NavLearning = Color(0xFFC97820)
+val NavNow = Color(0xFF6B8F5E)
 
 val SerifFamily = FontFamily.Serif
 

@@ -56,6 +56,7 @@ import com.moci.words.api.User
 import com.moci.words.update.AppUpdater
 import com.moci.words.update.DownloadProgress
 import com.moci.words.ui.AuthScreen
+import com.moci.words.ui.BabyNowScreen
 import com.moci.words.ui.ParentConfigScreen
 import com.moci.words.ui.HomeScreen
 import com.moci.words.ui.LearningScreen
@@ -67,6 +68,7 @@ import com.moci.words.ui.MociTheme
 import com.moci.words.ui.NavHome
 import com.moci.words.ui.NavLearning
 import com.moci.words.ui.NavMe
+import com.moci.words.ui.NavNow
 import com.moci.words.ui.NavRank
 import com.moci.words.ui.NavStudy
 import com.moci.words.ui.NavUsers
@@ -225,6 +227,7 @@ private fun tabsFor(user: User): List<TabSpec> = when {
     )
     user.isParent -> listOf(
         TabSpec("home", "首页", MociIcons.Home, NavHome),
+        TabSpec("now", "此刻", MociIcons.Clock, NavNow),
         TabSpec("study", "学习", MociIcons.Study, NavStudy),
         TabSpec("rank", "排行", MociIcons.Trophy, NavRank),
         TabSpec("config", "配置", MociIcons.Settings, NavUsers),
@@ -232,6 +235,7 @@ private fun tabsFor(user: User): List<TabSpec> = when {
     )
     else -> listOf(
         TabSpec("home", "首页", MociIcons.Home, NavHome),
+        TabSpec("now", "此刻", MociIcons.Clock, NavNow),
         TabSpec("study", "学习", MociIcons.Study, NavStudy),
         TabSpec("rank", "排行", MociIcons.Trophy, NavRank),
         TabSpec("me", "我的", MociIcons.Person, NavMe),
@@ -277,6 +281,7 @@ private fun MainScaffold(
             com.moci.words.ui.MociTopBar(
                 subtitle = when {
                     currentTab == "config" -> "设置自己和孩子的学习任务"
+                    currentTab == "now" -> "看看宝贝此刻在干什么"
                     user.isAdmin -> "管理词库与用户"
                     user.isParent -> "自己学，也看看孩子"
                     else -> "今天也把几个词留下来"
@@ -324,6 +329,7 @@ private fun MainScaffold(
                     onGameImmersiveChange = { gameImmersive = it },
                 )
                 "rank" -> RankScreen(user = user)
+                "now" -> BabyNowScreen()
                 "config" -> ParentConfigScreen(
                     user = user,
                     onUserChanged = onUserChanged,
